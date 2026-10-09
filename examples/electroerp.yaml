@@ -1,0 +1,24 @@
+# Copy to <ElectroERP>/devkit/electroerp.yaml.
+# All paths are relative to <ElectroERP>, regardless of the manifest's location.
+version: 1
+apps:
+  erp:
+    roots: [backend, frontend]
+    schemas: [backend/prisma/schema.prisma]
+  hub:
+    roots: [] # Set to the real Hub paths, e.g. [hub/backend, hub/frontend].
+    schemas: []
+  manager:
+    roots: [] # Set to the real Windows Manager source directory.
+    schemas: []
+# Module overrides replace that module entry; preserve desired aliases/models.
+# modules:
+#   products:
+#     app: erp
+#     aliases: [product, product-variants, product-attributes, product-categories]
+#     models: [Product, ProductVariant, ProductCategory, ProductAttribute, ProductAttributeValue, ProductVariantAttribute]
+#     paths: [backend/src/core/features/products, frontend/src/app/core/products]
+#     required: [backend/src/core/features/products/product.service.ts]
+# import_aliases:
+#   '@shared/': shared/src
+shared_models: [Organization, User, Currency]

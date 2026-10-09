@@ -1,0 +1,91 @@
+version: 1
+apps:
+  erp:
+    roots: [backend, frontend]
+    schemas: [backend/prisma/schema.prisma]
+  hub:
+    roots: []
+    schemas: []
+  manager:
+    roots: []
+    schemas: []
+shared_models: [Organization, User, Currency]
+modules:
+  access-control:
+    aliases: [permissions, roles, permission, role-permission, user-role, user-role-assignment]
+    models: [Permission, UserRole, RolePermission, UserRoleAssignment]
+  auth:
+    aliases: [authentication]
+    models: [UserAuth]
+  users:
+    models: [User, UserSettings]
+  currencies:
+    models: [Currency, CurrencyRate]
+  organizations:
+    models: [Organization]
+  organization-users:
+    models: [OrganizationUser]
+  subscriptions:
+    aliases: [subscription-plans, license, licensing]
+    models: [Subscription, SubscriptionPlan]
+    paths: [backend/src/core/services/licenseGuard.service.ts, backend/src/core/services/licenseHeartbeat.ts, backend/src/core/services/initializeLicenseFields.ts, backend/src/core/services/windowsTimeMonitor.ts, backend/src/middleware/licenseGuard.ts]
+  customers:
+    models: [Customer]
+  products:
+    aliases: [product, product-variants, product-attributes, product-attribute-values, product-variant-attributes, product-categories, attributes, categories]
+    models: [Product, ProductVariant, ProductAttribute, ProductAttributeValue, ProductVariantAttribute, ProductCategory]
+  inventory:
+    models: [Inventory]
+  warehouses:
+    models: [Warehouse]
+  sales-orders:
+    aliases: [sales, sale-orders, sale-order]
+    models: [SalesOrder, SalesOrderItem]
+  suppliers:
+    models: [Supplier, SupplierRiskAssessment]
+  purchase-orders:
+    models: [PurchaseOrder, PurchaseOrderItem]
+  chart-of-accounts:
+    models: [ChartOfAccount]
+  invoices:
+    models: [Invoice]
+  payments:
+    models: [Payment]
+  system-settings:
+    models: [SystemSetting]
+  audit-logs:
+    models: [AuditLog]
+  document-templates:
+    models: [DocumentTemplate]
+  rma:
+    aliases: [serialization, warranty]
+    models: [ProductSerialNumber, RmaTicket]
+  supermarket:
+    aliases: [pos]
+    models: [PosRegister, PosSetting, PosShift, PosSale, PosSaleItem, PosPayment]
+  cafe-net:
+    aliases: [cafenet, cn]
+    models: [CnComputer, CnPackage, CnCustomerPackage, CnSession, CnSessionItem, CnSetting]
+  e-commerce:
+    aliases: [ecommerce, ecom, plugin-e-commerce]
+    models: [EcomProduct, EcomNoteCategory, EcomNote, EcomRules, EcomRuleCategory, EcomPricingRule, EcomPriceRoundingRule, EcomNoteTodo]
+  plugins:
+    models: [Plugin, OrganizationPlugin]
+    paths: [backend/src/config/plugins.ts, backend/src/core/services/pluginManager.ts, backend/src/middleware/pluginLoader.ts, frontend/src/store/plugin-store.ts, frontend/src/hooks/useEnabledPlugins.ts]
+  whatsapp:
+    models: [WhatsappSetting, WhatsappConversation, WhatsappMessage]
+  notifications:
+    models: [Notification, NotificationTriggerRule]
+  hub-authorization:
+    models: [HubAuthorizationGrant, SuperAdminRoleRequest]
+  restaurant:
+    models: []
+  ai:
+    models: []
+    paths: [backend/ai, frontend/src/components/ai]
+  reports:
+    aliases: [financial-reports]
+    models: []
+  batch-io:
+    models: []
+    paths: [frontend/src/components/batch-wizard]
