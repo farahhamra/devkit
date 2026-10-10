@@ -119,7 +119,7 @@ class Analysis:
         ]
         return result
 
-    def trace_route(self, query: str, method: str | None = None) -> dict[str, Any]:
+    def trace_route(self, query: str, method: str | None = None, full: bool = False) -> dict[str, Any]:
         canonical = lambda value: value.rstrip("/") or "/"
         routes = [
             r
@@ -131,7 +131,16 @@ class Analysis:
             deps = self.source.dependencies(route["path"], depth=3)
             paths = {route["path"], *(d["resolved"] for d in deps)}
             route["dependencies"] = deps
-            route["definitions"] = [s for s in self.source.symbols if s["path"] in paths]
+            definitions = [s for s in self.source.symbols if s["path"] in paths]
+            handler_names = {handler.split(".")[0] for handler in route["handlers"]}
+            for imported in self.source.files[route["path"]]["imports"]:
+                handler_names.update(
+                    original for local, original in imported["bindings"].items() if local in handler_names
+                )
+            route["definitions"] = (
+                definitions if full else [s for s in definitions if s["name"] in handler_names]
+            )
+            route["dependency_definition_count"] = len(definitions)
             route["prisma_candidates"] = [
                 c
                 for c in self.source.calls
@@ -145,6 +154,7 @@ class Analysis:
         ]
         return {
             "query": query,
+            "detail": "full" if full else "summary",
             "routes": routes,
             "client_candidates": clients,
             "limitations": [

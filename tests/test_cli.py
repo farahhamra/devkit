@@ -183,11 +183,19 @@ def test_ignore_negation_preservation_and_explicit_target(project, capsys):
 
 
 def test_symlinks_and_escape_are_rejected(project, capsys):
-    (project / "alias.ts").symlink_to(project / "backend/src/app.ts")
-    (project / "linked").symlink_to(project / "backend", target_is_directory=True)
+    try:
+        (project / "alias.ts").symlink_to(project / "backend/src/app.ts")
+        (project / "linked").symlink_to(project / "backend", target_is_directory=True)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows account lacks symlink creation privilege")
+        raise
     data = invoke(capsys, project, "find", "alias")["data"]
     assert not data
     invoke(capsys, project, "symbols", "alias.ts", status=2)
+
+
+def test_escape_is_rejected_without_symlink_privileges(project, capsys):
     invoke(capsys, project, "search", "x", "../outside", status=2)
 
 

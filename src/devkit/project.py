@@ -96,6 +96,9 @@ class Project:
         self.warnings: list[str] = []
         self._files: list[Path] | None = None
         self._texts: dict[Path, str | None] = {}
+        self._app_roots: dict[str, list[Path]] = {}
+        self._app_for: dict[Path, str | None] = {}
+        self.use_cache = True
         self._validate_config()
         config_dir = Path(os.environ.get("DEVKIT_CONFIG_DIR", str(self.config_path.parent))).expanduser()
         self.ignore_file = config_dir / ".ignore"
@@ -181,22 +184,30 @@ class Project:
         return resolved
 
     def app_roots(self, app: str) -> list[Path]:
+        if app in self._app_roots:
+            return self._app_roots[app]
         entry = self.config["apps"].get(app)
         if entry is None:
             raise DevkitError(f"Unknown app: {app}")
-        return [self.resolve(p, must_exist=False) for p in entry.get("roots", [])]
+        roots = [self.resolve(p, must_exist=False) for p in entry.get("roots", [])]
+        self._app_roots[app] = roots
+        return roots
 
     def app_available(self, app: str) -> bool:
         return any(p.is_dir() for p in self.app_roots(app))
 
     def app_for(self, path: Path) -> str | None:
+        if path in self._app_for:
+            return self._app_for[path]
         candidates = [
             (len(root.parts), app)
             for app in self.config["apps"]
             for root in self.app_roots(app)
             if _inside(path, root)
         ]
-        return max(candidates)[1] if candidates else None
+        result = max(candidates)[1] if candidates else None
+        self._app_for[path] = result
+        return result
 
     def allowed(self, path: Path, directory: bool = False) -> bool:
         relative = self.rel(path) + ("/" if directory else "")

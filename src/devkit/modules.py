@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,7 @@ class Modules:
                         "discovered": True,
                     }
         self._file_maps: dict[str, list[dict[str, Any]]] = {}
+        self._files_indexed = False
 
     def _matching(self, value: str, app: str | None = None) -> list[str]:
         needle = normalize(value)
@@ -100,27 +102,81 @@ class Modules:
         }
 
     def files(self, name: str) -> list[dict[str, Any]]:
-        if name in self._file_maps:
-            return self._file_maps[name]
-        info = self.entries[name]
-        aliases = [name, *info["aliases"]]
-        keys = {normalize(n) for n in aliases}
-        model_names = set(info["models"])
-        model_rows = [m for m in self.schema.models if m["name"] in model_names and m["app"] == info["app"]]
-        terms = model_names | {m["table"] for m in model_rows}
-        result = []
+        if not self._files_indexed:
+            self._index_files()
+        return self._file_maps[name]
+
+    def _index_files(self) -> None:
+        """Scan paths and document identifiers once, then dispatch to matching modules."""
+        aliases = defaultdict(set)
+        terms = defaultdict(set)
+        schemas = defaultdict(set)
+        manifests = []
+        document_patterns = []
+        for name, info in self.entries.items():
+            self._file_maps[name] = []
+            names = [name, *info["aliases"]]
+            for alias in names:
+                aliases[normalize(alias)].add(name)
+            document_patterns.append(
+                (
+                    name,
+                    re.compile(
+                        r"(?:^|[-_.])(?:" + "|".join(re.escape(a) for a in names) + r")(?:[-_.]|$)",
+                        re.IGNORECASE,
+                    ),
+                )
+            )
+            for term in info["models"]:
+                terms[term].add(name)
+            for model in self.schema.models:
+                if model["app"] == info["app"] and model["name"] in info["models"]:
+                    terms[model["table"]].add(name)
+                    schemas[model["path"]].add(name)
+            manifests.extend((name, p.rstrip("/")) for p in info["paths"])
+        # A combined regex preserves exact identifier boundaries, including mapped
+        # SQL names that contain punctuation, without scanning once per model.
+        pattern = (
+            re.compile(
+                r"(?<!\w)(?:"
+                + "|".join(re.escape(t) for t in sorted(terms, key=lambda t: (-len(t), t)))
+                + r")(?!\w)"
+            )
+            if terms
+            else None
+        )
         for path in self.project.files():
             app = self.project.app_for(path)
-            if app and app != info["app"]:
-                continue
             relative = self.project.rel(path)
-            reasons = []
-            evidence = "convention"
-            if any(
-                relative == p.rstrip("/") or relative.startswith(p.rstrip("/") + "/") for p in info["paths"]
-            ):
-                reasons.append("Explicit module manifest path")
-                evidence = "manifest"
+            matches = {}
+
+            def add(
+                module: str,
+                reason: str,
+                evidence: str,
+                owned: bool,
+                app=app,
+                relative=relative,
+                matches=matches,
+            ) -> None:
+                if app and app != self.entries[module]["app"]:
+                    return
+                row = matches.setdefault(
+                    module,
+                    {
+                        "path": relative,
+                        "layer": layer(relative),
+                        "app": app or self.entries[module]["app"],
+                        "reasons": [],
+                        "evidence": evidence,
+                        "ownership": "reference",
+                    },
+                )
+                row["reasons"].append(reason)
+                if owned:
+                    row["ownership"] = "owned"
+                    row["evidence"] = evidence
+
             # Match module slots, not arbitrary deep folder names (e.g. POS categories
             # must not become product-category ownership merely by sharing a word).
             slots = []
@@ -142,41 +198,45 @@ class Modules:
             ):
                 if prefix in relative:
                     slots.append(relative.split(prefix, 1)[1].split("/", 1)[0].split(".")[0])
-            path_keys = {normalize(part) for part in slots}
             basename = path.name.split(".")[0]
-            document_match = path.suffix == ".md" and any(
-                re.search(r"(?:^|[-_.])" + re.escape(alias) + r"(?:[-_.]|$)", basename, re.IGNORECASE)
-                for alias in aliases
-            )
-            if path_keys & keys or normalize(basename) in keys or document_match:
-                reasons.append("Module directory or document naming convention")
-            # Related prose/migrations can be evidenced by a model/table identifier.
-            if path.suffix in {".sql", ".md"} and terms:
+            owners = set().union(*(aliases.get(normalize(part), set()) for part in slots))
+            has_slot_owner = bool(owners)
+            if not has_slot_owner:
+                owners.update(aliases.get(normalize(basename), set()))
+            if path.suffix == ".md" and not has_slot_owner:
+                owners.update(
+                    module for module, expression in document_patterns if expression.search(basename)
+                )
+            for module in sorted(owners):
+                add(module, "Module directory or document naming convention", "convention", True)
+            for module, prefix in manifests:
+                if relative == prefix or relative.startswith(prefix + "/"):
+                    add(module, "Explicit module manifest path", "manifest", True)
+            if path.suffix in {".sql", ".md"} and pattern:
                 content = self.project.text(path) or ""
-                mentioned = sorted(
-                    term for term in terms if re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", content)
-                )
-                if mentioned:
-                    reasons.append("References schema identifiers: " + ", ".join(mentioned))
-                    evidence = "text_reference"
-            if path.suffix == ".prisma" and any(m["path"] == relative for m in model_rows):
-                reasons.append("Declares module-owned Prisma models")
-                evidence = "schema_definition"
-            if reasons:
-                result.append(
-                    {
-                        "path": relative,
-                        "layer": layer(relative),
-                        "app": app or info["app"],
-                        "reasons": reasons,
-                        "evidence": evidence,
-                    }
-                )
-        self._file_maps[name] = result
-        return result
+                mentions = defaultdict(list)
+                for term in sorted(set(pattern.findall(content))):
+                    for module in terms[term]:
+                        mentions[module].append(term)
+                for module, identifiers in sorted(mentions.items()):
+                    add(
+                        module,
+                        "References schema identifiers: " + ", ".join(identifiers),
+                        "text_reference",
+                        False,
+                    )
+            for module in sorted(schemas.get(relative, set())):
+                add(module, "Declares module-owned Prisma models", "schema_definition", True)
+            for module, row in matches.items():
+                self._file_maps[module].append(row)
+        self._files_indexed = True
 
     def owners_of_file(self, path: str) -> list[str]:
-        return [name for name in self.entries if any(f["path"] == path for f in self.files(name))]
+        return [
+            name
+            for name in self.entries
+            if any(f["path"] == path and f["ownership"] == "owned" for f in self.files(name))
+        ]
 
     def catalog(self) -> list[dict[str, Any]]:
         rows = []
@@ -195,7 +255,9 @@ class Modules:
                     "layers": sorted({f["layer"] for f in files}),
                     "file_count": len(files),
                     "model_count": len(models),
-                    "available": bool(files or models),
+                    "owned_file_count": sum(f["ownership"] == "owned" for f in files),
+                    "reference_file_count": sum(f["ownership"] == "reference" for f in files),
+                    "available": bool(any(f["ownership"] == "owned" for f in files) or models),
                 }
             )
         return rows
@@ -228,7 +290,11 @@ class Modules:
 
     def impact(self, name: str) -> dict[str, Any]:
         inspection = self.inspect(name)
-        paths = {f["path"] for f in inspection["files"] if f["layer"] not in {"prisma", "migrations"}}
+        paths = {
+            f["path"]
+            for f in inspection["files"]
+            if f["ownership"] == "owned" and f["layer"] not in {"prisma", "migrations"}
+        }
         source = self.source or SourceIndex(self.project)
         imports = [
             i for p in paths for i in source.dependencies(p, reverse=True, depth=3) if i["path"] not in paths
@@ -280,7 +346,7 @@ class Modules:
 
         for name in names:
             info = self.entries[name]
-            files = self.files(name)
+            files = [f for f in self.files(name) if f["ownership"] == "owned"]
             paths = {f["path"] for f in files}
             inspection = self.inspect(name)
             if not files and len(info["models"]) == len(inspection["missing_models"]):
@@ -324,10 +390,14 @@ class Modules:
                     add(
                         name,
                         "source_parse",
-                        "fail" if parsed["errors"] else "pass",
-                        "Tree-sitter parse",
+                        "warning" if parsed["errors"] else "pass",
+                        "Parser could not fully analyze this file; not a compiler-verified syntax failure"
+                        if parsed["errors"]
+                        else "Tree-sitter parse",
                         path,
                     )
+                    if parsed["errors"]:
+                        checks[-1]["diagnostics"] = parsed["diagnostics"]
                     for imp in parsed["imports"]:
                         if (imp["specifier"] or "").startswith((".", "@/")):
                             add(
@@ -349,7 +419,11 @@ class Modules:
                                     continue
                                 origin = source.export_origin(imp["resolved"], imported)
                                 # CJS and ambient declarations can lack a static export map.
-                                status = "pass" if origin else ("fail" if target["exports"] else "warning")
+                                status = (
+                                    "pass"
+                                    if origin
+                                    else ("fail" if target["exports"] and not target["errors"] else "warning")
+                                )
                                 add(
                                     name,
                                     "imported_export",

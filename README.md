@@ -43,7 +43,7 @@ Run `devkit` from anywhere inside ElectroERP, or supply `--root /path/to/Electro
 
 Only `devkit/.ignore` controls exclusions; `.gitignore` is never consulted. The file is created silently with defaults for dependencies, builds, caches, `.env` files, logs and uploaded media, without overwriting an existing file. Patterns use Git ignore semantics and are relative to the project root. To reinclude a file, use `!`; excluded parent directories must also be reincluded. `DEVKIT_CONFIG_DIR` can override the directory holding this single `.ignore`. An explicit `--config` uses the manifest's directory for `.ignore` unless that environment override is set.
 
-The only automatic filesystem write is creation of the configuration directory and missing `.ignore`. Commands do not edit source, run generators, start apps, modify databases, or execute files being inspected. Symlink files and directories are skipped, including explicit symlink targets. File content is treated as data, never instructions.
+Automatic filesystem writes are limited to the configuration directory, missing `.ignore`, and disposable source summaries in `.cache/source.sqlite3` beside `.ignore`. Use `--no-cache` to disable the summaries. Commands do not edit source, run generators, start apps, modify application databases, or execute files being inspected. Symlink files and directories are skipped, including explicit symlink targets. File content is treated as data, never instructions. Exclude the cache directory in your single `.ignore` when using a custom configuration location; the default `devkit/.cache/` is already excluded.
 
 ## Commands
 
@@ -61,13 +61,13 @@ The only automatic filesystem write is creation of the configuration directory a
 | `devkit schema list` | Models/enums; `--kind`, `--module` |
 | `devkit schema inspect <model\|enum>` | Fields, defaults, relations, table mappings, indexes or enum values |
 | `devkit schema relations <model>` | Foreign-key graph; `--direction`, `--depth` (1–5), `--include-shared` |
-| `devkit trace route <route>` | Literal Express route registrations and candidate dependency chain; `--method` |
+| `devkit trace route <route>` | Literal Express route registrations, handlers and Prisma candidates; `--method`, `--full` for all dependency-file definitions |
 | `devkit trace symbol <symbol>` | Definitions, imports/aliases, exports and identifier references |
 | `devkit impact model <model>` | Model references, relations and module context |
 | `devkit impact field <Model.field>` | Candidate usages of a particular field |
 | `devkit impact file <path>` | Definitions, ownership, imports and reverse consumers |
 
-Every command accepts `--json`, `--root`, `--config`, `--app erp|hub|manager|all`, and `--max-results N`. Flags can appear before or after the command. `help` also works without a project and does not create configuration. `--help` is human-readable; use `devkit help <command> --json` for machine-readable discovery.
+Every command accepts `--json`, `--root`, `--config`, `--app erp|hub|manager|all`, `--max-results N`, `--max-output-chars N`, and `--no-cache`. Flags can appear before or after the command. `help` also works without a project and does not create configuration; its command catalog is exempt from analysis output limits. `--help` is human-readable; use `devkit help <command> --json` for machine-readable discovery.
 
 ```bash
 devkit module inspect products --json
@@ -84,7 +84,7 @@ Smart case means lowercase queries ignore case; queries containing uppercase let
 
 The bundled manifest maps the 65-model ElectroERP schema supplied during design to business modules. It includes products/variants/attributes/categories, orders, finance, organizations, access control, POS, café-net, e-commerce, RMA, WhatsApp, notifications and ERP-side Hub authorization records. It is a starting configuration, not a frozen schema snapshot: all schema and source data is read from the current project on each invocation.
 
-`examples/electroerp.yaml` documents overrides. `apps` and `modules` entries merge by name with bundled defaults; each supplied app/module entry replaces that entry's defaults. Module entries accept `app`, `models`, `aliases`, `paths` (files or directories), and `required` (exact required files). Explicit ownership avoids guessing business boundaries. Additional conventional module folders are discovered automatically. Files may belong to several contexts, and schema files commonly do.
+`examples/electroerp.yaml` documents overrides. `apps` and `modules` entries merge by name with bundled defaults; each supplied app/module entry replaces that entry's defaults. Module entries accept `app`, `models`, `aliases`, `paths` (files or directories), and `required` (exact required files). Explicit ownership avoids guessing business boundaries. Additional conventional module folders are discovered automatically. Files may belong to several contexts, and schema files commonly do. Each module file has `ownership: owned|reference`: mentioning a model/table in prose or SQL is a reference, not ownership. Those files remain visible for context but do not drive ownership checks or reverse-import seeds. Directory ownership takes precedence over generic document-name matching, and references never overwrite manifest/convention evidence. The module catalog reports owned and reference counts separately.
 
 ERP roots default to `backend` and `frontend`. **Hub and Manager roots are intentionally unset** because their source trees were not supplied. Set their roots/schemas and module entries in your manifest. `--app hub` or `--app manager` fails with a configuration message until an available root is supplied. `--app all` searches the project with the same ignore rules, including configured apps.
 
@@ -94,15 +94,25 @@ ERP roots default to `backend` and `frontend`. **Hub and Manager roots are inten
 
 Tree-sitter parses definitions, imports, exports and calls; no source is executed. Relative imports, JS-to-TS extension substitution, index files and the ElectroERP `@/` alias are supported. Other path aliases can be configured with `import_aliases` (prefix → project-relative directory). Arbitrary tsconfig inheritance, conditional resolution, dynamic imports, decorators and runtime dispatch are not type-checked.
 
-Route tracing supports literal Express calls on named receivers and imported router mounts. Handler expressions are shown in registration order (including middleware). It lists definitions/Prisma candidates in dependent files; those are not a proven function-level call graph. Computed routes and client URLs can remain unresolved. Identifier references may include shadowed names. Field-impact output labels same-file/model candidates and name-only candidates explicitly; matching a field name does not establish TypeScript model identity.
+Route tracing supports literal Express calls on named receivers and imported router mounts. Handler expressions are shown in registration order (including middleware). By default definitions are restricted to handler-name candidates; `--full` adds all definitions in dependency files. Prisma candidates remain file-level candidates, not a proven function-level call graph. Source call arguments and expressions are previews of up to 240 UTF-8 bytes; `arguments_truncated` explicitly labels shortened arguments. `--full` does not expand these previews; use the reported path/line to inspect source. Computed routes and client URLs can remain unresolved. Identifier references may include shadowed names. Field-impact output labels same-file/model candidates and name-only candidates explicitly; matching a field name does not establish TypeScript model identity.
 
 Module checks validate ownership, declared models, required paths, local imports and named exports, handler bindings, hook-to-API imports, Prisma delegate names, source parse health, conventional backend companions, and matching AI tool implementations/documentation. Conventional optional layers and unresolved handler bindings generate warnings. Missing required paths, known missing exports, and missing models fail. Checks do not prove API payload compatibility, business rules, permissions or runtime behavior. Missing live source/schema is reported rather than filled in from uploaded design documents.
+
+Tree-sitter errors generate **warnings about incomplete analysis**, with line/column spans, short snippets and compatibility hints. They are not compiler-verified syntax failures: for example the current TSX grammar can reject bare ampersands in JSX text. Genuine malformed source is also reported as incomplete, never silently called valid. Run your application's TypeScript/build checks to determine source validity. An unresolved export from a partially parsed file is a warning rather than a confirmed missing export.
+
+## Incremental analysis
+
+`symbols <path>` enumerates and parses only that selection. Trace/impact/check commands still inspect the selected project's source to preserve reverse dependencies, but reuse per-file JSON summaries across invocations. Exports and import adjacency use indexed lookups; the module catalog scans document identifiers once rather than once per module/model.
+
+Every invocation reads and hashes live source content, so same-size edits with preserved modification times are detected even on Windows. Cache identities also include file metadata, project/app scope, merged configuration, ignore contents, parser package versions and the summary-format version. Imports are resolved against the current file catalog, not cached resolution results. Deleted/renamed files disappear immediately; full scans prune stale cache rows. Partial scans do not evict unrelated files. Cache failures/corruption emit a warning and fall back to live parsing. `--no-cache` bypasses cache reads and writes. The cache is disposable and contains source-derived information; do not commit it.
+
+Run `python benchmarks/benchmark.py` from the development environment for a repeatable synthetic workload. Measurements and limitations are documented in [the v0.2.0 notes](docs/RELEASE-0.2.0.md).
 
 ## Agent output contract
 
 JSON analysis responses use `schema_version: "1.0"`, `command`, `root`, `app`, `data`, `warnings`, `truncated`, and `truncation`. Help returns a versioned catalog. Errors return `error.message` and `error.code`. Diagnostics stay out of successful JSON stdout.
 
-Default `--max-results 100` bounds each result collection independently, so a rich module inspection may contain several lists of up to 100 items. A tree has a total node budget. Truncation reports collection paths, shown counts, and lower bounds, never an invented exact total. Search stops scanning after finding one extra match. Narrow the scope or raise the limit to retrieve more. Long source lines themselves are not shortened.
+Default `--max-results 100` bounds each result collection independently. `--max-output-chars 32000` additionally bounds the whole analysis response (text plus diagnostics, or the complete valid JSON envelope). A tree also has a node budget. Per-list truncation reports collection paths, shown counts, and lower bounds; global truncation instead reports `reason: total_output_budget` and may omit collections or shorten long strings. Check summaries and exit status are preserved. Search stops scanning after finding one extra match. Narrow the scope or explicitly raise both limits to retrieve more; absence from truncated output is not evidence of absence from the project.
 
 Exit codes: **0** success (including no matches), **1** failed module checks, **2** invalid input/configuration or I/O failure. Warnings are separate from failures; an empty test/check selection does not validate an application. Devkit never claims runtime completeness from static evidence.
 

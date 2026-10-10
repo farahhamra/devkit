@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
 import re
+from collections import defaultdict
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -11,6 +14,7 @@ import tree_sitter_javascript as javascript
 import tree_sitter_typescript as typescript
 from tree_sitter import Language, Node, Parser
 
+from .cache import ParseCache
 from .project import SOURCE_EXTENSIONS, Project
 
 
@@ -41,28 +45,53 @@ def match_name(query: str, value: str) -> bool:
 
 
 class SourceIndex:
-    def __init__(self, project: Project) -> None:
+    def __init__(self, project: Project, paths: list[Path] | None = None) -> None:
         self.project = project
         self.files: dict[str, dict[str, Any]] = {}
         self.symbols: list[dict[str, Any]] = []
         self.references: list[dict[str, Any]] = []
         self.calls: list[dict[str, Any]] = []
+        self.forward: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        self.reverse: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        self.stats = {"parsed_files": 0, "cached_files": 0}
+        cache = ParseCache(project)
         parsers = {
             "js": Parser(Language(javascript.language())),
             "ts": Parser(Language(typescript.language_typescript())),
             "tsx": Parser(Language(typescript.language_tsx())),
         }
-        for path in project.files():
+        selected = paths if paths is not None else project.files()
+        for path in selected:
             if path.suffix not in SOURCE_EXTENSIONS:
+                continue
+            relative = project.rel(path)
+            try:
+                stamp = cache.stamp(path)
+            except OSError as exc:
+                project.warnings.append(f"Cannot stat {relative}: {exc}")
                 continue
             content = project.text(path)
             if content is None:
                 continue
+            content_bytes = content.encode("utf-8")
+            # Hash live content even on a metadata hit: Windows ctime can be birth
+            # time and tools may preserve mtime/size while changing a file.
+            identity = stamp + ":" + hashlib.sha256(content_bytes).hexdigest()
+            cached = cache.get(relative, identity)
+            if cached is not None:
+                self.files[relative] = cached["info"]
+                self.symbols.extend(cached["symbols"])
+                self.references.extend(cached["references"])
+                self.calls.extend(cached["calls"])
+                project.warnings.extend(cached["warnings"])
+                self.stats["cached_files"] += 1
+                continue
             lang = (
                 "tsx" if path.suffix == ".tsx" else "ts" if path.suffix in {".ts", ".mts", ".cts"} else "js"
             )
-            tree = parsers[lang].parse(content.encode("utf-8"))
-            relative = project.rel(path)
+            tree = parsers[lang].parse(content_bytes)
+            self.stats["parsed_files"] += 1
+            offsets = (len(self.symbols), len(self.references), len(self.calls), len(project.warnings))
             info = {
                 "path": relative,
                 "imports": [],
@@ -70,12 +99,68 @@ class SourceIndex:
                 "routers": [],
                 "initializers": {},
                 "errors": tree.root_node.has_error,
+                "diagnostics": [],
             }
             self.files[relative] = info
             if tree.root_node.has_error:
-                project.warnings.append(f"Parse errors in {relative}; source analysis is partial.")
+                for node in walk(tree.root_node):
+                    if not (node.is_error or node.is_missing):
+                        continue
+                    snippet = content_bytes[
+                        node.start_byte : node.start_byte + min(120, node.end_byte - node.start_byte)
+                    ].decode("utf-8", errors="replace")
+                    hint = (
+                        "Possible JSX ampersand grammar limitation"
+                        if lang == "tsx" and snippet.startswith("&")
+                        else "Not verified by the TypeScript compiler"
+                    )
+                    info["diagnostics"].append(
+                        {
+                            "line": node.start_point.row + 1,
+                            "column": node.start_point.column + 1,
+                            "end_line": node.end_point.row + 1,
+                            "end_column": node.end_point.column + 1,
+                            "kind": "missing_node" if node.is_missing else "parser_error",
+                            "snippet": snippet,
+                            "hint": hint,
+                        }
+                    )
+                first = (
+                    info["diagnostics"][0]
+                    if info["diagnostics"]
+                    else {"line": 1, "column": 1, "hint": "Unverified parser error"}
+                )
+                project.warnings.append(
+                    f"Parse errors in {relative}:{first['line']}:{first['column']}; source analysis is partial. {first['hint']}."
+                )
+            self._content = content_bytes
             self._parse(tree.root_node, info)
-        self._resolve_imports()
+            try:
+                unchanged = cache.stamp(path) == stamp
+            except OSError:
+                unchanged = False
+            if unchanged:
+                cache.put(
+                    relative,
+                    identity,
+                    {
+                        "info": info,
+                        "symbols": self.symbols[offsets[0] :],
+                        "references": self.references[offsets[1] :],
+                        "calls": self.calls[offsets[2] :],
+                        "warnings": project.warnings[offsets[3] :],
+                    },
+                )
+        cache.finish(set(self.files) if paths is None else None)
+        self._resolve_imports(resolve=paths is None)
+
+    def _preview(self, node: Node | None, limit: int = 240) -> str:
+        if node is None:
+            return ""
+        value = self._content[node.start_byte : min(node.end_byte, node.start_byte + limit)].decode(
+            "utf-8", errors="replace"
+        )
+        return value + ("…" if node.end_byte - node.start_byte > limit else "")
 
     def _parse(self, root: Node, info: dict[str, Any]) -> None:
         path = info["path"]
@@ -98,7 +183,9 @@ class SourceIndex:
             if node.type == "variable_declarator":
                 value = node.child_by_field_name("value")
                 if name_node and value and value.type == "call_expression":
-                    info["initializers"][text(name_node)] = text(value.child_by_field_name("function"))
+                    info["initializers"][text(name_node)] = self._preview(
+                        value.child_by_field_name("function")
+                    )
                 kind = (
                     "function"
                     if value and value.type in {"arrow_function", "function_expression", "generator_function"}
@@ -120,7 +207,7 @@ class SourceIndex:
                     "kind": kind,
                     "end_line": node.end_point.row + 1,
                     "exported": exported,
-                    "signature": text(node).splitlines()[0][:240],
+                    "signature": self._preview(node).splitlines()[0],
                     "evidence": "definition",
                 }
                 self.symbols.append(symbol)
@@ -172,14 +259,15 @@ class SourceIndex:
                 args = arguments.named_children if arguments else []
                 call = {
                     **location,
-                    "callee": text(function),
-                    "arguments": [text(a) for a in args],
+                    "callee": self._preview(function),
+                    "arguments": [self._preview(a) for a in args],
+                    "arguments_truncated": any(a.end_byte - a.start_byte > 240 for a in args),
                     "literals": [literal(a) for a in args],
                     "end_line": node.end_point.row + 1,
                     "evidence": "parsed_call",
                 }
                 self.calls.append(call)
-                if text(function) in {"require", "import"}:
+                if call["callee"] in {"require", "import"}:
                     spec = literal(args[0]) if args else None
                     if spec:
                         bindings = {}
@@ -214,8 +302,8 @@ class SourceIndex:
                     {
                         **location,
                         "name": text(node.child_by_field_name("property")),
-                        "expression": text(node),
-                        "object": text(node.child_by_field_name("object")),
+                        "expression": self._preview(node),
+                        "object": self._preview(node.child_by_field_name("object")),
                         "evidence": "parsed_member",
                     }
                 )
@@ -252,7 +340,8 @@ class SourceIndex:
             if not alias:
                 return None
             target = root / aliases[alias] / specifier[len(alias) :]
-        target = target.resolve()
+        # Candidate membership in the already-vetted file catalog excludes symlinks.
+        target = Path(os.path.abspath(target))
         if not target.is_relative_to(root):
             return None
         candidates = [target]
@@ -269,19 +358,26 @@ class SourceIndex:
             None,
         )
 
-    def _resolve_imports(self) -> None:
+    def _resolve_imports(self, resolve: bool = True) -> None:
+        symbols = defaultdict(list)
+        for symbol in self.symbols:
+            symbols[(symbol["path"], symbol["name"])].append(symbol)
         for info in self.files.values():
             for item in info["imports"]:
+                if not resolve:
+                    continue
                 item["resolved"] = self.resolve_import(info["path"], item["specifier"] or "")
                 item["evidence"] = "resolved_import" if item["resolved"] else "unresolved_import"
+                if item["resolved"]:
+                    self.forward[item["path"]].append(item)
+                    self.reverse[item["resolved"]].append(item)
                 if not item["resolved"] and (item["specifier"] or "").startswith((".", "@/")):
                     self.project.warnings.append(
                         f"Unresolved local import {item['specifier']} at {info['path']}:{item['line']}"
                     )
             for exported in info["exports"].values():
-                for symbol in self.symbols:
-                    if symbol["path"] == info["path"] and symbol["name"] == exported:
-                        symbol["exported"] = True
+                for symbol in symbols[(info["path"], exported)]:
+                    symbol["exported"] = True
 
     def export_origin(
         self, path: str, exported: str, seen: set[tuple[str, str]] | None = None
@@ -311,14 +407,14 @@ class SourceIndex:
         return None
 
     def dependencies(self, path: str, reverse: bool = False, depth: int = 1) -> list[dict[str, Any]]:
-        imports = [item for f in self.files.values() for item in f["imports"] if item["resolved"]]
+        adjacency = self.reverse if reverse else self.forward
         frontier = {path}
         visited = {path}
         seen = set()
         result = []
         for distance in range(1, depth + 1):
             following = set()
-            for item in imports:
+            for item in (item for node in sorted(frontier) for item in adjacency.get(node, [])):
                 source, target = (
                     (item["resolved"], item["path"]) if reverse else (item["path"], item["resolved"])
                 )

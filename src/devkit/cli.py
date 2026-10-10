@@ -106,6 +106,18 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
         default=argparse.SUPPRESS,
         help="Maximum rows per result collection (default: 100); truncation is reported",
     )
+    common.add_argument(
+        "--no-cache",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Bypass persistent source summaries and parse live files",
+    )
+    common.add_argument(
+        "--max-output-chars",
+        type=bounded_int(2048, 10000000),
+        default=argparse.SUPPRESS,
+        help="Total response character budget (default: 32000); JSON remains valid",
+    )
     root = Parser(
         prog="devkit", description="ElectroERP code discovery for humans and coding agents.", parents=[common]
     )
@@ -230,6 +242,11 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
         tsubs, "route", "Trace literal Express routes, imports, middleware and candidate consumers.", "trace"
     )
     route.add_argument("target", help="Literal full or local route, including :parameter placeholders")
+    route.add_argument(
+        "--full",
+        action="store_true",
+        help="Include all dependency-file definitions (still subject to output limits)",
+    )
     route.add_argument(
         "--method",
         type=str.upper,
@@ -404,13 +421,12 @@ def execute(project: Project, args: argparse.Namespace) -> tuple[Any, int]:
     if command == "tree":
         return tree(project, args), 0
     if command == "symbols":
-        selected = set(project.entries(args.path))
-        index = SourceIndex(project)
+        selected = project.entries(args.path)
+        index = SourceIndex(project, paths=selected)
         return [
             s
             for s in index.symbols
-            if project.root / s["path"] in selected
-            and (not args.name or match_name(args.name, s["name"]))
+            if (not args.name or match_name(args.name, s["name"]))
             and (not args.kind or s["kind"] in args.kind)
             and (not args.exported_only or s["exported"])
         ], 0
@@ -447,7 +463,7 @@ def execute(project: Project, args: argparse.Namespace) -> tuple[Any, int]:
     analysis = Analysis(project)
     if command == "trace":
         if action == "route":
-            return analysis.trace_route(args.target, args.method), 0
+            return analysis.trace_route(args.target, args.method, args.full), 0
         return analysis.source.symbol_trace(args.target), 0
     if command == "impact":
         return {"model": analysis.model_impact, "field": analysis.field_impact, "file": analysis.file_impact}[
@@ -524,6 +540,55 @@ def render(data: Any, indent: int = 0) -> list[str]:
     return [prefix + str(data)]
 
 
+def bound_output(result: dict[str, Any], maximum: int, output) -> None:
+    """Shrink structured collections, not serialized JSON. Preserve check summaries."""
+    if len(output()) + 2 <= maximum:
+        return
+    result["truncated"] = True
+    result["truncation"] = [
+        {
+            "reason": "total_output_budget",
+            "max_output_chars": maximum,
+            "message": "Collections or strings omitted/shortened; narrow the query or raise output limits.",
+        }
+    ]
+    while len(output()) + 2 > maximum:
+        candidates = []
+
+        def visit(value, parent=None, key=None, candidates=candidates):
+            if isinstance(value, list):
+                if value:
+                    # Prefer trimming evidence collections over dropping an enclosing route.
+                    nested = any(
+                        isinstance(row, dict) and any(isinstance(v, list) and v for v in row.values())
+                        for row in value
+                    )
+                    candidates.append((len(json.dumps(value)) / (10 if nested else 1), parent, key, value))
+                for i, row in enumerate(value):
+                    visit(row, value, i)
+            elif isinstance(value, dict):
+                for k, row in value.items():
+                    if k != "summary":
+                        visit(row, value, k)
+            elif isinstance(value, str) and len(value) > 160:
+                candidates.append((len(value), parent, key, value))
+
+        visit(result["data"], result, "data")
+        visit(result["warnings"], result, "warnings")
+        if not candidates:
+            # A very wide scalar mapping cannot be pruned safely field-by-field.
+            summary = result["data"].get("summary") if isinstance(result["data"], dict) else None
+            result["data"] = {
+                "message": "Result omitted to fit output budget",
+                **({"summary": summary} if summary else {}),
+            }
+            break
+        _, parent, key, value = max(candidates, key=lambda row: row[0])
+        parent[key] = (
+            value[: len(value) // 2] if isinstance(value, list) else value[: max(80, len(value) // 2)] + "…"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     json_mode = "--json" in argv
@@ -555,6 +620,7 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"{row['command']:<30} {row['description']}")
             return 0
         project = Project(args.root, args.config, args.app)
+        project.use_cache = not getattr(args, "no_cache", False)
         data, status = execute(project, args)
         data, truncation = limit_data(data, args.max_results)
         if args.command == "tree" and data["truncated"]:
@@ -575,12 +641,40 @@ def main(argv: list[str] | None = None) -> int:
             "truncated": bool(truncation),
             "truncation": truncation,
         }
+        maximum = getattr(args, "max_output_chars", 32000)
+        output = lambda: (
+            json.dumps(result, ensure_ascii=False)
+            if args.json
+            else "\n".join(render_tree(result["data"]) if args.command == "tree" else render(result["data"]))
+            + "\n"
+            + "\n".join("Warning: " + w for w in result["warnings"])
+            + (
+                "\nResults truncated; increase --max-results / --max-output-chars or narrow the query."
+                if result["truncated"]
+                else ""
+            )
+        )
+        bound_output(result, maximum, output)
+        if args.command == "tree" and any(
+            t.get("reason") == "total_output_budget" for t in result["truncation"]
+        ):
+
+            def count_nodes(node):
+                return sum(1 + count_nodes(child) for child in node.get("children", []))
+
+            result["data"]["shown_nodes"] = count_nodes(result["data"])
+            result["data"]["truncated"] = True
         if args.json:
             print(json.dumps(result, ensure_ascii=False))
         else:
-            print("\n".join(render_tree(data) if args.command == "tree" else render(data)))
-            if truncation:
-                print("Results truncated; increase --max-results or narrow the query.", file=sys.stderr)
+            print(
+                "\n".join(render_tree(result["data"]) if args.command == "tree" else render(result["data"]))
+            )
+            if result["truncated"]:
+                print(
+                    "Results truncated; increase --max-results / --max-output-chars or narrow the query.",
+                    file=sys.stderr,
+                )
             for warning in result["warnings"]:
                 print("Warning: " + warning, file=sys.stderr)
         return status
