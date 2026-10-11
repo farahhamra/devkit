@@ -238,6 +238,56 @@ class Modules:
             if any(f["path"] == path and f["ownership"] == "owned" for f in self.files(name))
         ]
 
+    def _tool_namespace(self, path: str) -> tuple[str | None, str, str, str]:
+        """Identify a tool's concrete feature/plugin, not its broad manifest owners.
+
+        The backend prefix isolates separate source trees even within one app.
+        Unknown layouts only pair same-directory siblings; a shared `ai` owner
+        must never allow unrelated tools to satisfy each other's checks.
+        """
+        app = self.project.app_for(self.project.root / path)
+        for prefix, kind in (
+            ("backend/src/plugins/", "plugin"),
+            ("backend/src/core/features/ai/tools/", "feature"),
+            ("backend/ai/rag/tools/", "feature"),
+            ("backend/src/core/features/", "feature"),
+        ):
+            match = re.search(r"(?:^|/)" + re.escape(prefix) + r"([^/]+)/", path)
+            if not match:
+                continue
+            name = match.group(1)
+            # RAG docs and centralized tool folders label plugins explicitly.
+            if prefix in {"backend/ai/rag/tools/", "backend/src/core/features/ai/tools/"} and name.startswith(
+                "plugin-"
+            ):
+                kind, name = "plugin", name[len("plugin-") :]
+            modules = self._matching(name, app)
+            if len(modules) > 1:
+                break  # Ambiguous aliases cannot establish cross-directory identity.
+            canonical = modules[0] if modules else name
+            return app, path[: match.start()].rstrip("/"), kind, canonical
+        return app, "", "directory", str(Path(path).parent)
+
+    def _tool_companions(self) -> dict[str, list[str]]:
+        """Index eligible files once; matching works in both directions across owners."""
+        namespaces = {}
+        index = defaultdict(list)
+        for candidate in self.project.files():
+            path = self.project.rel(candidate)
+            if not path.endswith((".tool.ts", ".tool.md")):
+                continue
+            namespace = self._tool_namespace(path)
+            namespaces[path] = namespace
+            index[(namespace, candidate.name)].append(path)
+        return {
+            path: sorted(
+                index.get(
+                    (namespace, Path(path).with_suffix(".md" if path.endswith(".ts") else ".ts").name), []
+                )
+            )
+            for path, namespace in namespaces.items()
+        }
+
     def catalog(self) -> list[dict[str, Any]]:
         rows = []
         for name, info in sorted(self.entries.items()):
@@ -338,6 +388,7 @@ class Modules:
                 "No available modules to check. Configure the project roots and module manifest."
             )
         registered_routes = source.routes()
+        tool_companions = self._tool_companions()
 
         def add(module: str, rule: str, status: str, message: str, path: str | None = None) -> None:
             checks.append(
@@ -479,30 +530,27 @@ class Modules:
                             f"Expected companion: {expected}",
                             path,
                         )
-                if path.endswith(".tool.ts"):
-                    stem = Path(path).name[:-3] + ".md"
-                    docs = [p for p in paths if Path(p).name == stem]
+                if path.endswith((".tool.ts", ".tool.md")):
+                    documentation = path.endswith(".tool.ts")
+                    kind = "documentation" if documentation else "implementation"
+                    stem = Path(path).with_suffix(".md" if documentation else ".ts").name
+                    companions = tool_companions.get(path, [])
+                    status = "pass" if len(companions) == 1 else "warning" if companions else "fail"
+                    message = (
+                        f"Matching {kind}: " + companions[0]
+                        if len(companions) == 1
+                        else f"Ambiguous {kind} in the same app/tool namespace: " + ", ".join(companions)
+                        if companions
+                        else f"Missing {kind} {stem} in the same app/tool namespace (or excluded by .ignore)"
+                    )
                     add(
                         name,
-                        "ai_tool_documentation",
-                        "pass" if docs else "fail",
-                        "Matching documentation: " + ", ".join(docs)
-                        if docs
-                        else f"Missing documentation {stem}",
+                        "ai_tool_" + kind,
+                        status,
+                        message,
                         path,
                     )
-                if path.endswith(".tool.md"):
-                    stem = Path(path).name[:-3] + ".ts"
-                    impl = [p for p in paths if Path(p).name == stem]
-                    add(
-                        name,
-                        "ai_tool_implementation",
-                        "pass" if impl else "fail",
-                        "Matching implementation: " + ", ".join(impl)
-                        if impl
-                        else f"Missing implementation {stem}",
-                        path,
-                    )
+                    checks[-1]["companions"] = companions
             delegates = {
                 m["name"][0].lower() + m["name"][1:]: m["name"]
                 for m in self.schema.models

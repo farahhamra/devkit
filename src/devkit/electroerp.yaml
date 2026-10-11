@@ -49,8 +49,14 @@ modules:
     models: [ChartOfAccount]
   invoices:
     models: [Invoice]
+  bills:
+    aliases: [bill]
+    models: [Bill]
   payments:
     models: [Payment]
+  payments-out:
+    aliases: [payment-out, payments_out]
+    models: [PaymentOut]
   system-settings:
     models: [SystemSetting]
   audit-logs:

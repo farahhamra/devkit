@@ -1,0 +1,70 @@
+// Schema slice for tests only; .txt prevents discovery in nested Devkit checkouts.
+model Bill {
+  id               Int           @id @default(autoincrement())
+  organizationId   Int           @map("organization_id")
+  billNumber       String        @map("bill_number") @db.VarChar(50)
+  supplierId       Int           @map("supplier_id")
+  orderId          Int?          @map("order_id")
+  chartOfAccountId Int?          @map("chart_of_account_id")
+  billDate         DateTime      @map("bill_date") @db.Date
+  dueDate          DateTime      @map("due_date") @db.Date
+  status           BillStatus    @default(draft)
+  subtotal         Decimal       @db.Decimal(12, 2)
+  taxAmount        Decimal       @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  totalAmount      Decimal       @map("total_amount") @db.Decimal(12, 2)
+  paidAmount       Decimal       @default(0) @map("paid_amount") @db.Decimal(12, 2)
+  notes            String?       @db.Text
+  createdBy        Int?          @map("created_by")
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamp(0)
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier       Supplier        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  order          PurchaseOrder?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  chartOfAccount ChartOfAccount? @relation(fields: [chartOfAccountId], references: [id], onDelete: SetNull)
+  creator        User?           @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  paymentsOut    PaymentOut[]
+
+  @@unique([organizationId, billNumber], name: "unique_org_bill_number")
+  @@index([organizationId])
+  @@index([supplierId])
+  @@index([orderId])
+  @@index([chartOfAccountId])
+  @@index([billDate])
+  @@index([status])
+  @@map("bills")
+}
+
+enum BillStatus {
+  draft
+  sent
+  paid
+  partial
+  cancelled
+}
+
+model PaymentOut {
+  id              Int           @id @default(autoincrement())
+  organizationId  Int           @map("organization_id")
+  paymentNumber   String        @unique @map("payment_number") @db.VarChar(50)
+  billId          Int?          @map("bill_id")
+  supplierId      Int?          @map("supplier_id")
+  paymentDate     DateTime      @map("payment_date") @db.Date
+  amount          Decimal       @db.Decimal(12, 2)
+  paymentMethod   PaymentMethod @map("payment_method")
+  referenceNumber String?       @map("reference_number") @db.VarChar(100)
+  notes           String?       @db.Text
+  createdBy       Int?          @map("created_by")
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamp(0)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bill         Bill?        @relation(fields: [billId], references: [id], onDelete: SetNull)
+  supplier     Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  creator      User?        @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([billId])
+  @@index([supplierId])
+  @@map("payments_out")
+}

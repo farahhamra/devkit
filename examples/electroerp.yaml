@@ -12,6 +12,11 @@ apps:
     roots: [] # Set to the real Windows Manager source directory.
     schemas: []
 # Module overrides replace that module entry; preserve desired aliases/models.
+# Built-in payables modules (no overrides needed):
+#   bills -> Prisma Bill -> MySQL bills; alias: bill
+#   payments-out -> Prisma PaymentOut -> MySQL payments_out
+#     aliases: payment-out, payments_out
+# Table names are read from the live Prisma @@map, not inferred from module IDs.
 # modules:
 #   products:
 #     app: erp
