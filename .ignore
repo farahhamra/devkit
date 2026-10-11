@@ -1,0 +1,24 @@
+# Devkit exclusions, relative to the ElectroERP project root.
+# This is the only ignore file Devkit reads. Git ignore files are not consulted.
+.git/
+node_modules/
+.venv/
+venv/
+__pycache__/
+.next/
+dist/
+build/
+coverage/
+.pytest_cache/
+.ruff_cache/
+*.tsbuildinfo
+*.log
+.env
+.env.*
+!.env.example
+!.env.sample
+private/logs/
+public/files/
+backend/public/files/
+backend/ai/memory/data/
+devkit/.cache/
