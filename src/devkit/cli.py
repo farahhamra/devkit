@@ -11,14 +11,18 @@ from typing import Any
 
 from . import __version__
 from .agents import AgentsContext, AgentSync
-from .analysis import Analysis
+from .diagnostics import DiagnosticContext, Diagnostics
 from .feedback import EVIDENCE, SEVERITIES, STATUSES, TYPES, FeedbackContext, FeedbackStore
-from .modules import Modules
 from .project import DevkitError, Project
 from .schema import Schema
-from .source import SourceIndex, match_name
 
 EXAMPLES = {
+    "doctor": ["devkit doctor --app erp --json", "devkit doctor --root /path/to/ElectroERP"],
+    "config inspect": [
+        "devkit config inspect --json",
+        "devkit config inspect --config .agents/devkit/electroerp.yaml --json",
+    ],
+    "config validate": ["devkit config validate --app erp --json"],
     "agents sync": [
         "devkit agents sync --dry-run --root /path/to/ElectroERP",
         "devkit agents sync --check --json",
@@ -64,6 +68,9 @@ EXAMPLES = {
 }
 
 OUTPUTS = {
+    "doctor": "Read-only installation, parser, configuration, storage and agent-template checks with remediation and summary counts",
+    "config inspect": "Effective default/override settings, entry origins, ignore rules and storage locations; unknown values omitted",
+    "config validate": "Read-only manifest/path/ignore/alias checks with actionable diagnostics and summary counts",
     "agents sync": "Per-file sync plan/status, template version, conflicts and local backup path; --dry-run includes managed-content diffs",
     "feedback add": "Saved local report, stable ID, occurrence count and duplicate flag; no uploads",
     "feedback list": "Local report summaries, filtered total and pagination offset",
@@ -152,14 +159,18 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
         if key in OUTPUTS:
             epilog += "\nOutput: " + OUTPUTS[key]
         epilog += (
-            "\nFormats: readable text or --json. Scope: fixed agent files under --root, independent of --config/--app/--no-cache. Templates are bundled; no network access or source indexing."
+            "\nFormats: readable text or --json. Read-only: no source scan, storage initialization, network, database connection or automatic repair. --app scopes configured-path checks, not global manifest structure."
+            if key == "doctor" or key.startswith("config")
+            else "\nFormats: readable text or --json. Scope: fixed agent files under --root, independent of --config/--app/--no-cache. Templates are bundled; no network access or source indexing."
             if key.startswith("agents")
             else "\nFormats: readable text or --json. Scope: local project feedback and --app. YAML/source are not inspected; --no-cache does not disable durable feedback storage."
             if key.startswith("feedback")
             else "\nFormats: readable text (default) or --json. Scope: project root and --app; only Devkit .ignore applies."
         )
         epilog += (
-            "\nExit codes: 0 success/current, 1 --check detected drift/conflicts, 2 unsafe/conflicting apply or invalid input/storage. --dry-run and --check never write. --force requires explicit approval to replace local edits; backups are always kept."
+            "\nExit codes: 0 successful inspection or checks without failures (warnings may remain), 1 doctor/config validate found failed checks, 2 invalid arguments/root or inspection could not complete."
+            if key == "doctor" or key.startswith("config")
+            else "\nExit codes: 0 success/current, 1 --check detected drift/conflicts, 2 unsafe/conflicting apply or invalid input/storage. --dry-run and --check never write. --force requires explicit approval to replace local edits; backups are always kept."
             if key.startswith("agents")
             else "\nExit codes: 0 success (including empty matches), 1 failed module checks, 2 invalid input/configuration or I/O failure."
         )
@@ -176,6 +187,13 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
 
     help_parser = add(subs, "help", "List commands or show detailed command help.")
     help_parser.add_argument("topic", nargs="*", help="Command path, such as module inspect")
+    add(subs, "doctor", "Diagnose this installation and project without writing or scanning source.")
+    configuration = add(
+        subs, "config", "Inspect and validate effective configuration without initializing files."
+    )
+    csubs = configuration.add_subparsers(dest="action")
+    add(csubs, "inspect", "Show merged settings, their origins, ignore rules and storage paths.", "config")
+    add(csubs, "validate", "Check manifest structure and configured paths/ignore rules read-only.", "config")
     search = add(subs, "search", "Search text contents; literal smart-case matching by default.")
     search.add_argument("query", help="Literal query, or a regular expression with --regex")
     search.add_argument("path", nargs="?", default=".", help="Directory/file relative to project root")
@@ -405,14 +423,18 @@ def catalog(registry: dict[str, Parser], topic: str = "") -> list[dict[str, Any]
                 "arguments": options,
                 "examples": EXAMPLES.get(name, []),
                 "output": OUTPUTS.get(name, "Subcommand group"),
-                "scope": "Project-wide fixed agent files under --root; ignores app/config/cache selection"
+                "scope": "Read-only configuration/install inspection; selected app paths, global manifest structure"
+                if name == "doctor" or name.startswith("config")
+                else "Project-wide fixed agent files under --root; ignores app/config/cache selection"
                 if name.startswith("agents")
                 else "Local feedback only; YAML/source are not inspected"
                 if name.startswith("feedback")
                 else "Selected app and project-local .ignore; help reads no project files",
                 "exit_codes": {
                     "0": "Success (including no matches)",
-                    "1": "--check detected drift/conflicts"
+                    "1": "Diagnostic checks failed (doctor/config validate)"
+                    if name == "doctor" or name.startswith("config")
+                    else "--check detected drift/conflicts"
                     if name.startswith("agents")
                     else "Module check failures",
                     "2": "Unsafe/conflicting sync or invalid input/storage"
@@ -521,8 +543,15 @@ def tree(project: Project, args: argparse.Namespace) -> dict[str, Any]:
     return node
 
 
-def execute(project: Project | FeedbackContext | AgentsContext, args: argparse.Namespace) -> tuple[Any, int]:
+def execute(
+    project: Project | FeedbackContext | AgentsContext | DiagnosticContext, args: argparse.Namespace
+) -> tuple[Any, int]:
     command, action = args.command, getattr(args, "action", None)
+    if command in {"doctor", "config"}:
+        diagnostics = Diagnostics(project)
+        return (
+            diagnostics.inspect() if action == "inspect" else diagnostics.validate(doctor=command == "doctor")
+        )
     if command == "agents":
         return AgentSync(project).run(args)
     if command == "feedback":
@@ -537,6 +566,8 @@ def execute(project: Project | FeedbackContext | AgentsContext, args: argparse.N
     if command == "tree":
         return tree(project, args), 0
     if command == "symbols":
+        from .source import SourceIndex, match_name
+
         selected = project.entries(args.path)
         index = SourceIndex(project, paths=selected)
         return [
@@ -547,6 +578,8 @@ def execute(project: Project | FeedbackContext | AgentsContext, args: argparse.N
             and (not args.exported_only or s["exported"])
         ], 0
     if command in {"module", "schema"}:
+        from .modules import Modules
+
         schema = Schema(project)
         if command == "schema" and not schema.paths:
             raise DevkitError(
@@ -576,6 +609,8 @@ def execute(project: Project | FeedbackContext | AgentsContext, args: argparse.N
             model = schema.get(args.model)
             return {**model, "module": modules.owner(model["name"], model["app"])}, 0
         return schema.relations(args.model, args.depth, args.direction, args.include_shared), 0
+    from .analysis import Analysis
+
     analysis = Analysis(project)
     if command == "trace":
         if action == "route":
@@ -722,7 +757,7 @@ def main(argv: list[str] | None = None) -> int:
             args.command == "help"
             or not args.command
             or (
-                args.command in {"module", "schema", "trace", "impact", "feedback", "agents"}
+                args.command in {"module", "schema", "trace", "impact", "feedback", "agents", "config"}
                 and not args.action
             )
         ):
@@ -738,9 +773,14 @@ def main(argv: list[str] | None = None) -> int:
                     for row in data:
                         print(f"{row['command']:<30} {row['description']}")
             return 0
-        project = ({"feedback": FeedbackContext, "agents": AgentsContext}.get(args.command, Project))(
-            args.root, args.config, args.app
-        )
+        project = (
+            {
+                "feedback": FeedbackContext,
+                "agents": AgentsContext,
+                "doctor": DiagnosticContext,
+                "config": DiagnosticContext,
+            }.get(args.command, Project)
+        )(args.root, args.config, args.app)
         project.use_cache = not getattr(args, "no_cache", False)
         data, status = execute(project, args)
         data, truncation = limit_data(data, args.max_results)
@@ -801,7 +841,7 @@ def main(argv: list[str] | None = None) -> int:
         return status
     except BrokenPipeError:
         return 0
-    except (DevkitError, OSError, ValueError) as exc:
+    except (DevkitError, OSError, ValueError, ImportError) as exc:
         if json_mode:
             print(
                 json.dumps(

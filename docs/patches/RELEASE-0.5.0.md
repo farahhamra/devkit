@@ -1,0 +1,10 @@
+# Devkit 0.5.0
+
+- Added `devkit doctor`, `devkit config inspect` and `devkit config validate`, all read-only and available without source indexing or storage initialization.
+- Doctor reports active installation/Python/PATH locations, dependency imports and JS/TS/TSX smoke checks, selected project/configuration, storage permission estimates and agent-template drift. Broken YAML or missing parsers does not stop independent doctor checks.
+- Effective configuration inspection shares merge/validation code with analysis and shows default/override origins, ignore rules and storage selection. Unknown setting values and raw YAML error snippets are omitted; displayed credential patterns are sanitized best-effort.
+- Validation checks selected configured roots, schemas, ignores, required paths, explicit ownership paths, import aliases and alias ambiguity. Unconfigured optional apps do not fail `--app all`; explicitly selected unavailable apps and missing selected configured paths do.
+- Separated read-only configuration from write-initializing analysis projects and deferred parser imports until needed. Duplicate explicit YAML keys, invalid module containers/app types and invalid version types now produce actionable configuration errors; bounded UTF-8 manifest reads reject special files. Source-path safety rejects Windows reparse points as well as symlinks.
+- Updated bundled agent guidance and the installed-package smoke test. Existing JSON envelope version and source-analysis behavior/commands remain otherwise unchanged. `doctor` / `config validate` use exit `1` for failed checks; `config inspect` uses exit `2` when inspection cannot complete.
+
+See [diagnostic usage and limits](../DIAGNOSTICS.md). Doctor does not perform actual write tests, validate database contents, run application tests, contact GitHub, repair data or synchronize templates. Storage access reports are estimates, not an ACL/locking guarantee. General analysis coverage improvements and preferences remain deferred.

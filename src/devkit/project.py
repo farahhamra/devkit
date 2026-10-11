@@ -7,9 +7,6 @@ import stat
 from pathlib import Path
 from typing import Any
 
-import pathspec
-import yaml
-
 DEFAULT_IGNORE = """# Devkit exclusions, relative to the ElectroERP project root.
 # This is the only ignore file Devkit reads. Git ignore files are not consulted.
 .git/
@@ -48,24 +45,96 @@ def _inside(path: Path, parent: Path) -> bool:
 
 
 def default_config() -> dict[str, Any]:
+    import yaml
+
     resource = Path(__file__).with_name("electroerp.yaml")
     return yaml.safe_load(resource.read_text(encoding="utf-8"))
 
 
-def detect_root(cwd: Path) -> Path:
+def detect_root_info(cwd: Path) -> tuple[Path, str]:
     # An explicit Devkit configuration wins over inferred source/Git boundaries.
     for candidate in (cwd, *cwd.parents):
         if (candidate / "devkit/electroerp.yaml").is_file():
-            return candidate
+            return candidate, "manifest"
     for candidate in (cwd, *cwd.parents):
         if (candidate / "backend").is_dir() and (candidate / "frontend").is_dir():
-            return candidate
+            return candidate, "source_pair"
         if (candidate / ".git").exists():
-            return candidate
-    return cwd
+            return candidate, "git_boundary"
+    return cwd, "cwd_fallback"
 
 
-class Project:
+def detect_root(cwd: Path) -> Path:
+    return detect_root_info(cwd)[0]
+
+
+def load_configuration(path: Path, explicit: bool = False) -> tuple[dict, dict]:
+    """The shared default/override merge. Reading configuration never initializes storage."""
+    import yaml
+
+    class UniqueLoader(yaml.SafeLoader):
+        def construct_mapping(self, node, deep=False):
+            seen = set()
+            for key_node, _ in node.value:
+                if key_node.tag == "tag:yaml.org,2002:merge":
+                    continue
+                key = self.construct_object(key_node, deep=deep)
+                try:
+                    if key in seen:
+                        raise yaml.constructor.ConstructorError(
+                            None, None, "duplicate mapping key", key_node.start_mark
+                        )
+                    seen.add(key)
+                except TypeError:
+                    pass  # The standard constructor reports unsupported mapping keys.
+            return super().construct_mapping(node, deep=deep)
+
+    config = default_config()
+    custom = {}
+    if explicit and not path.is_file():
+        raise DevkitError(f"Configuration file not found: {path}")
+    if path.exists():
+        if not path.is_file() or path.stat().st_size > 2 * 1024 * 1024:
+            raise DevkitError("Configuration must be a regular UTF-8 file no larger than 2 MiB.")
+        try:
+            with path.open("rb") as handle:
+                content = handle.read(2 * 1024 * 1024 + 1)
+            if len(content) > 2 * 1024 * 1024:
+                raise DevkitError("Configuration exceeds the 2 MiB limit.")
+            custom = yaml.load(content.decode("utf-8-sig"), Loader=UniqueLoader)
+            if custom is None:
+                custom = {}
+        except yaml.YAMLError as exc:
+            mark = getattr(exc, "problem_mark", None)
+            location = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+            # PyYAML's full exception can expose raw configuration values.
+            reason = (
+                "duplicate mapping key"
+                if getattr(exc, "problem", None) == "duplicate mapping key"
+                else "check indentation and value types"
+            )
+            raise DevkitError(f"Invalid configuration YAML{location}; {reason}.") from exc
+        except RecursionError as exc:
+            raise DevkitError("Configuration YAML is nested too deeply.") from exc
+        except (OSError, UnicodeError) as exc:
+            raise DevkitError(
+                "Cannot read configuration as UTF-8; check its encoding and permissions."
+            ) from exc
+        if not isinstance(custom, dict):
+            raise DevkitError("Configuration must be a YAML mapping.")
+        for key, value in custom.items():
+            if key in {"apps", "modules"}:
+                if not isinstance(value, dict):
+                    raise DevkitError(f"Configuration {key} must be a mapping.")
+                config.setdefault(key, {}).update(value)
+            else:
+                config[key] = value
+    return config, custom
+
+
+class Configuration:
+    """Read-only configuration shared by diagnostics and source-analysis projects."""
+
     def __init__(
         self, root: str | Path | None = None, config: str | Path | None = None, app: str = "all"
     ) -> None:
@@ -75,53 +144,18 @@ class Project:
         self.config_path = (
             Path(config).expanduser().resolve() if config else self.root / "devkit/electroerp.yaml"
         )
-        self.config = default_config()
-        if config and not self.config_path.is_file():
-            raise DevkitError(f"Configuration file not found: {self.config_path}")
-        if self.config_path.is_file():
-            try:
-                custom = yaml.safe_load(self.config_path.read_text(encoding="utf-8")) or {}
-            except (yaml.YAMLError, OSError) as exc:
-                raise DevkitError(f"Cannot read configuration: {exc}") from exc
-            if not isinstance(custom, dict):
-                raise DevkitError("Configuration must be a YAML mapping.")
-            for key, value in custom.items():
-                if key in {"apps", "modules"}:
-                    if not isinstance(value, dict):
-                        raise DevkitError(f"Configuration {key} must be a mapping.")
-                    self.config.setdefault(key, {}).update(value)
-                else:
-                    self.config[key] = value
+        self.config, self.overrides = load_configuration(self.config_path, explicit=bool(config))
         self.app = app
         self.warnings: list[str] = []
-        self._files: list[Path] | None = None
-        self._texts: dict[Path, str | None] = {}
-        self._app_roots: dict[str, list[Path]] = {}
-        self._app_for: dict[Path, str | None] = {}
-        self.use_cache = True
         self._validate_config()
-        config_dir = Path(os.environ.get("DEVKIT_CONFIG_DIR", str(self.config_path.parent))).expanduser()
-        self.ignore_file = config_dir / ".ignore"
-        self.feedback_directory = (config_dir / ".feedback").absolute()
-        try:
-            config_dir.mkdir(parents=True, exist_ok=True)
-            try:
-                with self.ignore_file.open("x", encoding="utf-8") as handle:
-                    handle.write(DEFAULT_IGNORE)
-            except FileExistsError:
-                pass
-            self.ignore = pathspec.GitIgnoreSpec.from_lines(
-                self.ignore_file.read_text(encoding="utf-8").splitlines()
-            )
-        except OSError as exc:
-            raise DevkitError(f"Cannot initialize/read Devkit ignore file {self.ignore_file}: {exc}") from exc
-        if app != "all" and not self.app_available(app):
-            raise DevkitError(
-                f"App '{app}' has no available source root. Configure apps.{app}.roots in {self.config_path}."
-            )
+        self.config_dir = (
+            Path(os.environ.get("DEVKIT_CONFIG_DIR", str(self.config_path.parent))).expanduser().absolute()
+        )
+        self.ignore_file = self.config_dir / ".ignore"
+        self.feedback_directory = self.config_dir / ".feedback"
 
     def _validate_config(self) -> None:
-        if self.config.get("version", 1) != 1:
+        if type(self.config.get("version", 1)) is not int or self.config.get("version", 1) != 1:
             raise DevkitError("Unsupported manifest version; expected version: 1")
         apps = self.config.get("apps")
         if not isinstance(apps, dict):
@@ -138,16 +172,19 @@ class Project:
                     raise DevkitError(f"apps.{name}.{key} must be a list of nonempty paths")
             for path in entry.get("roots", []) + entry.get("schemas", []):
                 self.resolve(path, must_exist=False)
-        for name, entry in self.config.get("modules", {}).items():
+        modules = self.config.get("modules", {})
+        if not isinstance(modules, dict):
+            raise DevkitError("modules must be a mapping")
+        for name, entry in modules.items():
             if not isinstance(entry, dict):
                 raise DevkitError(f"modules.{name} must be a mapping")
             if not isinstance(name, str) or not name:
                 raise DevkitError("Module names must be nonempty strings")
-            if entry.get("app", "erp") not in apps:
+            if not isinstance(entry.get("app", "erp"), str) or entry.get("app", "erp") not in apps:
                 raise DevkitError(f"Unknown app for modules.{name}")
             for key in ("models", "aliases", "paths", "required"):
                 if key in entry and (
-                    not isinstance(entry[key], list) or not all(isinstance(x, str) for x in entry[key])
+                    not isinstance(entry[key], list) or not all(isinstance(x, str) and x for x in entry[key])
                 ):
                     raise DevkitError(f"modules.{name}.{key} must be a list of strings")
             for path in entry.get("paths", []) + entry.get("required", []):
@@ -175,7 +212,9 @@ class Project:
         for item in (candidate, *candidate.parents):
             if item == self.root:
                 break
-            if item.is_symlink():
+            if item.is_symlink() or (
+                item.exists() and getattr(item.stat(follow_symlinks=False), "st_file_attributes", 0) & 0x400
+            ):
                 raise DevkitError(f"Symlink paths are not followed: {path}")
         resolved = candidate.resolve()
         if not _inside(resolved, self.root):
@@ -183,6 +222,34 @@ class Project:
         if must_exist and not resolved.exists():
             raise DevkitError(f"Path does not exist: {path}")
         return resolved
+
+
+class Project(Configuration):
+    def __init__(self, root=None, config=None, app="all") -> None:
+        import pathspec
+
+        super().__init__(root, config, app)
+        self._files: list[Path] | None = None
+        self._texts: dict[Path, str | None] = {}
+        self._app_roots: dict[str, list[Path]] = {}
+        self._app_for: dict[Path, str | None] = {}
+        self.use_cache = True
+        try:
+            self.config_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                with self.ignore_file.open("x", encoding="utf-8") as handle:
+                    handle.write(DEFAULT_IGNORE)
+            except FileExistsError:
+                pass
+            self.ignore = pathspec.GitIgnoreSpec.from_lines(
+                self.ignore_file.read_text(encoding="utf-8").splitlines()
+            )
+        except OSError as exc:
+            raise DevkitError(f"Cannot initialize/read Devkit ignore file {self.ignore_file}: {exc}") from exc
+        if app != "all" and not self.app_available(app):
+            raise DevkitError(
+                f"App '{app}' has no available source root. Configure apps.{app}.roots in {self.config_path}."
+            )
 
     def app_roots(self, app: str) -> list[Path]:
         if app in self._app_roots:

@@ -35,6 +35,11 @@ def main():
             return json.loads(result.stdout)
 
         assert any(row["command"] == "devkit agents sync" for row in invoke("help")["data"])
+        assert invoke("config", "inspect")["data"]["ignore"]["source"] == "bundled_defaults_not_created"
+        assert invoke("config", "validate", status=1)["data"]["summary"]["fail"] > 0
+        doctor = invoke("doctor", status=1)["data"]
+        assert doctor["runtime"]["devkit_version"] == __version__
+        assert next(row for row in doctor["checks"] if row["id"] == "parser.tsx")["status"] == "pass"
         invoke("agents", "sync", "--dry-run")
         invoke("agents", "sync", "--check", status=1)
         assert not list(root.iterdir())
@@ -54,7 +59,7 @@ def main():
             "report"
         ]
         assert invoke("feedback", "inspect", report["id"])["data"]["title"] == "Package smoke test"
-    print("Installed-package smoke checks passed: bundled sync, backups, idempotence and feedback.")
+    print("Installed-package smoke checks passed: read-only diagnostics, bundled sync, backups and feedback.")
 
 
 if __name__ == "__main__":

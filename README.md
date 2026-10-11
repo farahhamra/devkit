@@ -36,7 +36,7 @@ ElectroERP/
   frontend/
   devkit/                 # this checkout, or just the CLI configuration directory
     electroerp.yaml       # optional project overrides
-    .ignore               # automatically created on the first project command
+    .ignore               # automatically created on the first source-analysis command
 ```
 
 Run `devkit` from anywhere inside ElectroERP, or supply `--root /path/to/ElectroERP`. Explicit command paths are **relative to that project root**, independent of the current working directory. Discovery first looks for `devkit/electroerp.yaml`, then the nearest backend/frontend pair or Git boundary, then falls back to the current directory. If the Devkit checkout is nested in your project, copy `examples/electroerp.yaml` to `devkit/electroerp.yaml` so its own Git boundary does not become the project root.
@@ -50,6 +50,9 @@ Analysis commands only write the configuration directory, missing `.ignore`, and
 | Command | Purpose |
 | --- | --- |
 | `devkit help [command...]` | Usage, arguments, flags, examples and JSON command catalog |
+| `devkit doctor` | Read-only installation/parser/configuration/storage/agent-template checks and remediation |
+| `devkit config inspect` | Effective merged settings, default/override origins, ignore rules and storage paths |
+| `devkit config validate` | Read-only manifest structure, selected-app paths, ignore and alias checks |
 | `devkit search <query> [path]` | Smart-case literal content search; `--regex`, repeatable `--glob`, `--context N` |
 | `devkit find <pattern> [path]` | Smart-case path substring search; `--regex`, `--type`, repeatable `--extension` |
 | `devkit tree [path]` | Project tree; `--depth N` (default 3), `--dirs-only` |
@@ -85,6 +88,20 @@ devkit module check all
 
 Smart case means lowercase queries ignore case; queries containing uppercase letters match case. Content search is line-oriented and produces one result per match. Binary and non-UTF-8 content is skipped. Hidden files are included unless ignored. No shell glob expansion is required; quote patterns and queries.
 
+## Diagnose installation and configuration
+
+```powershell
+devkit doctor --app erp --json
+devkit config inspect --json
+devkit config validate --app erp --json
+```
+
+These commands do not create `.ignore`/cache/feedback/sync files, scan source, connect to a database or repair anything. Doctor identifies the active Python/Devkit installation, tests parser imports with synthetic samples, checks configuration and estimates storage access, and reports agent-template drift. It continues independent checks through broken YAML or missing parsers. Optional unconfigured Hub/Manager apps do not fail `--app all`; explicitly selecting an unconfigured app does.
+
+Configuration inspection shows the same merge used by analysis: named app/module overrides replace whole entries, not individual fields. It also explains which root/manifest/ignore/storage directory is selected. In a nested installation, use `--root <ElectroERP>` and `--config <ElectroERP>/.agents/devkit/electroerp.yaml` when appropriate; `DEVKIT_CONFIG_DIR` does not select a manifest. Unknown setting values and raw configuration/feedback/agent contents are not dumped.
+
+Doctor/validation exit `1` for failed checks, `0` if there are no failures (warnings may remain), and `2` if inspection cannot complete. `config inspect` returns `2` for invalid/unreadable configuration. Check summaries survive output truncation. Permission estimates are not actual write tests, and successful diagnostics do not validate Prisma syntax, database health or the application. See [diagnostic details and limits](docs/DIAGNOSTICS.md).
+
 ## Sync Antigravity instructions
 
 After updating the installed CLI, run these from the ElectroERP root (or add `--root "C:\Projects\ElectroERP"`):
@@ -95,7 +112,7 @@ devkit agents sync
 devkit agents sync --check
 ```
 
-Templates in [docs/agents/](docs/agents/README.md) ship with Devkit and sync offline to `.agents/rules/devkit-rules.md`, `.agents/skills/devkit/SKILL.md`, and only the marked Devkit section of `AGENTS.md`. General directives outside that block remain unchanged. Existing custom dedicated files/local edits require a reviewed `--force`; replacements are backed up under `.agents/.devkit-sync/backups/`. Ambiguous Devkit sections are not guessed, even with force. Dry-run/check create nothing; `--check` exits `1` when updates/conflicts need attention. See the guide for first-time migration, nested Windows installs, backups and recovery. Release notes live in [docs/patches/](docs/patches/RELEASE-0.4.0.md).
+Templates in [docs/agents/](docs/agents/README.md) ship with Devkit and sync offline to `.agents/rules/devkit-rules.md`, `.agents/skills/devkit/SKILL.md`, and only the marked Devkit section of `AGENTS.md`. General directives outside that block remain unchanged. Existing custom dedicated files/local edits require a reviewed `--force`; replacements are backed up under `.agents/.devkit-sync/backups/`. Ambiguous Devkit sections are not guessed, even with force. Dry-run/check create nothing; `--check` exits `1` when updates/conflicts need attention. See the guide for first-time migration, nested Windows installs, backups and recovery. Release notes live in [docs/patches/](docs/patches/RELEASE-0.5.0.md).
 
 ## Local feedback
 
@@ -151,6 +168,6 @@ JSON analysis responses use `schema_version: "1.0"`, `command`, `root`, `app`, `
 
 Default `--max-results 100` bounds each result collection independently. `--max-output-chars 32000` additionally bounds the whole analysis response (text plus diagnostics, or the complete valid JSON envelope). A tree also has a node budget. Per-list truncation reports collection paths, shown counts, and lower bounds; global truncation instead reports `reason: total_output_budget` and may omit collections or shorten long strings. Check summaries and exit status are preserved. Search stops scanning after finding one extra match. Narrow the scope or explicitly raise both limits to retrieve more; absence from truncated output is not evidence of absence from the project.
 
-Exit codes: **0** success (including no matches), **1** failed module checks or drift/conflicts detected by `agents sync --check`, **2** invalid input/configuration, unsafe/conflicting sync, or I/O failure. Warnings are separate from failures; an empty test/check selection does not validate an application. Devkit never claims runtime completeness from static evidence.
+Exit codes: **0** success (including no matches), **1** failed module/doctor/config-validation checks or drift/conflicts detected by `agents sync --check`, **2** invalid arguments/root, inspection that could not complete, unsafe/conflicting sync, or I/O failure. Invalid YAML is reported as a failed check by doctor/validation and exit `2` by config inspection/analysis. Warnings are separate from failures; an empty test/check selection does not validate an application. Devkit never claims runtime completeness from static evidence.
 
 See [agent sync and templates](docs/agents/README.md) for the Antigravity workflow.

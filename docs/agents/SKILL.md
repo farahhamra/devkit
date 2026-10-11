@@ -7,7 +7,7 @@ description: Use the ElectroERP Devkit CLI for module discovery, live Prisma sch
 
 <!-- Managed by devkit agents sync. Keep project-specific additions in a separate skill. -->
 
-Use the installed `devkit` Python command. It is not a Node script. If it is unavailable, report that and use authorized fallback inspection; do not assume an installation location. Start with `devkit --version` and `devkit help` when needed. This guide ships with the CLI, not an independently fetched latest GitHub template.
+Use the installed `devkit` Python command. It is not a Node script. If it is unavailable, report that and use authorized fallback inspection; do not assume an installation location. Start with `devkit --version` and `devkit help` when needed. Use `devkit doctor` for installation/configuration problems and `config inspect` to see effective settings. This guide ships with the CLI, not an independently fetched latest GitHub template.
 
 ## Locate and scope the project
 
@@ -22,6 +22,9 @@ Use `devkit help <command...> --json` for the authoritative options of the insta
 | Command | Purpose / useful options |
 | --- | --- |
 | `devkit help [command...]` | Help and machine-readable command catalog |
+| `devkit doctor` | Read-only runtime/parser/configuration/storage/agent-template diagnostics; `--app` scopes configured-path checks |
+| `devkit config inspect` | Effective settings and origins, root/manifest/ignore/storage selection; no source scan or initialization |
+| `devkit config validate` | Read-only global manifest structure plus selected-app path/ignore/alias checks; no Prisma syntax validation |
 | `devkit search <query> [path]` | Smart-case literal content search; `--regex`, `--glob`, `--context` |
 | `devkit find <pattern> [path]` | Substring path search; `--regex`, `--type`, `--extension` |
 | `devkit tree [path]` | Ignore-aware tree; `--depth`, `--dirs-only` |
@@ -45,6 +48,20 @@ Use `devkit help <command...> --json` for the authoritative options of the insta
 | `devkit agents sync` | Explicitly synchronize the dedicated rule/skill and Devkit-only `AGENTS.md` block; `--dry-run`, `--check`, `--force` |
 
 ## Workflows
+
+### Installation or configuration problems
+
+```powershell
+devkit doctor --app erp --json
+devkit config inspect --json
+devkit config validate --app erp --json
+# For a nested checkout, select the intended project and manifest explicitly:
+devkit doctor --root "C:\Projects\ElectroERP" --config "C:\Projects\ElectroERP\.agents\devkit\electroerp.yaml" --app erp --json
+```
+
+Doctor reports the running version/interpreter, PATH command candidate, dependency imports and synthetic JS/TS/TSX parser checks, configuration, storage permission estimates and agent-template drift. It continues independent checks when YAML or a parser dependency is broken. `config inspect` shows defaults merged with explicit overrides: app/module entries replace whole entries, not individual fields. `DEVKIT_CONFIG_DIR` selects the ignore/storage directory, not the manifest. Unrecognized field values and raw file contents are not included.
+
+All three commands are read-only: no `.ignore` initialization, source indexing, database connection, write test, network call, repair or synchronization. An unconfigured optional app is not a failure under `--app all`, but explicitly selecting it is. Missing paths for a configured selected app fail validation. Exit `1` from doctor/validation means failed checks; warnings alone return `0`. `config inspect` exits `2` when configuration/ignore loading cannot complete. Permission estimates do not prove actual Windows ACL/write access, and successful path checks do not validate Prisma syntax, database health or application behavior. Review `checks`, `summary` and truncation, not just the exit code.
 
 ### Feature investigation and editing
 
