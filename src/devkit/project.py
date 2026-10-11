@@ -213,7 +213,7 @@ class Project:
     def allowed(self, path: Path, directory: bool = False) -> bool:
         # Durable reports may contain diagnostics. They are internal state, not
         # project source, and must not recursively feed searches/module analysis.
-        if _inside(path, self.feedback_directory):
+        if _inside(path, self.feedback_directory) or _inside(path, self.root / ".agents/.devkit-sync"):
             return False
         relative = self.rel(path) + ("/" if directory else "")
         return not self.ignore.match_file(relative)

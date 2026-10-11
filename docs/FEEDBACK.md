@@ -1,6 +1,6 @@
 # Feedback (v0.3.0)
 
-Feedback is an explicit local record of a Devkit problem or improvement idea. It does not watch conversations, automatically record failed commands, run reproductions, fix code, synchronize preferences, upload telemetry, or create GitHub issues. The agent must submit the report; update its instructions using [ANTIGRAVITY.md](ANTIGRAVITY.md).
+Feedback is an explicit local record of a Devkit problem or improvement idea. It does not watch conversations, automatically record failed commands, run reproductions, fix code, synchronize preferences, upload telemetry, or create GitHub issues. The agent must submit the report; update its instructions using [agent template sync](agents/README.md).
 
 ## Commands and fields
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "electroerp-devkit"
-version = "0.3.0"
+version = "0.4.0"
 description = "Project-aware code discovery for ElectroERP and coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,6 +24,11 @@ devkit = "devkit.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/devkit"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"docs/agents/devkit-rules.md" = "devkit/agent_templates/devkit-rules.md"
+"docs/agents/SKILL.md" = "devkit/agent_templates/SKILL.md"
+"docs/agents/AGENTS.fragment.md" = "devkit/agent_templates/AGENTS.fragment.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

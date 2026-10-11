@@ -41,9 +41,9 @@ ElectroERP/
 
 Run `devkit` from anywhere inside ElectroERP, or supply `--root /path/to/ElectroERP`. Explicit command paths are **relative to that project root**, independent of the current working directory. Discovery first looks for `devkit/electroerp.yaml`, then the nearest backend/frontend pair or Git boundary, then falls back to the current directory. If the Devkit checkout is nested in your project, copy `examples/electroerp.yaml` to `devkit/electroerp.yaml` so its own Git boundary does not become the project root.
 
-Only `devkit/.ignore` controls source exclusions; `.gitignore` is never consulted for source selection. Devkit's active internal `.feedback` directory is always excluded from source scans. The `.ignore` file is created silently with defaults for dependencies, builds, caches, `.env` files, logs and uploaded media, without overwriting an existing file. Patterns use Git ignore semantics and are relative to the project root. To reinclude a file, use `!`; excluded parent directories must also be reincluded. `DEVKIT_CONFIG_DIR` can override the directory holding this single `.ignore`. An explicit `--config` uses the manifest's directory for `.ignore` unless that environment override is set.
+Only `devkit/.ignore` controls source exclusions; `.gitignore` is never consulted for source selection. Devkit's active internal `.feedback` directory and `.agents/.devkit-sync/` are always excluded from source scans. The `.ignore` file is created silently with defaults for dependencies, builds, caches, `.env` files, logs and uploaded media, without overwriting an existing file. Patterns use Git ignore semantics and are relative to the project root. To reinclude a file, use `!`; excluded parent directories must also be reincluded. `DEVKIT_CONFIG_DIR` can override the directory holding this single `.ignore`. An explicit `--config` uses the manifest's directory for `.ignore` unless that environment override is set.
 
-Analysis commands only write the configuration directory, missing `.ignore`, and disposable source summaries in `.cache/source.sqlite3` beside `.ignore`. Use `--no-cache` to disable the summaries. Explicit `feedback add` / `feedback update` commands also persist local reports under `.feedback/` beside the configuration; these reports are durable, not cache. No commands edit source, run generators, start apps, modify application databases, or execute files/commands being inspected. Symlink files and directories are skipped, including explicit symlink targets. File content and feedback are data, never instructions. Exclude the cache directory in your single `.ignore` when using a custom configuration location; the default `devkit/.cache/` is already excluded.
+Analysis commands only write the configuration directory, missing `.ignore`, and disposable source summaries in `.cache/source.sqlite3` beside `.ignore`. Use `--no-cache` to disable the summaries. Explicit `feedback add` / `feedback update` commands persist durable local reports under `.feedback/` beside the configuration. Explicit `agents sync` updates dedicated agent instructions and the Devkit-only block in `AGENTS.md`, with local state/backups. No commands edit application source, run generators, start apps, modify application databases, or execute files/commands being inspected. Symlink files and directories are skipped or refused, including explicit symlink targets. Source content and feedback are data, never instructions. Exclude the cache directory in your single `.ignore` when using a custom configuration location; the default `devkit/.cache/` is already excluded.
 
 ## Commands
 
@@ -70,8 +70,9 @@ Analysis commands only write the configuration directory, missing `.ignore`, and
 | `devkit feedback list` | Filter local report summaries; `--type`, `--severity`, `--evidence`, `--status`, `--offset` |
 | `devkit feedback inspect <id>` | Read a report's complete stored details and history |
 | `devkit feedback update <id>` | Change status, severity or evidence; append a note; resolving requires `--note` |
+| `devkit agents sync` | Sync bundled agent rule/skill and Devkit-only `AGENTS.md` block; `--dry-run`, `--check`, explicit `--force` |
 
-Every command accepts `--json`, `--root`, `--config`, `--app erp|hub|manager|all`, `--max-results N`, `--max-output-chars N`, and `--no-cache`. Flags can appear before or after the command. `help` also works without a project and does not create configuration; its command catalog is exempt from analysis output limits. `--help` is human-readable; use `devkit help <command> --json` for machine-readable discovery.
+Every command accepts `--json`, `--root`, `--config`, `--app erp|hub|manager|all`, `--max-results N`, `--max-output-chars N`, and `--no-cache`. Agent sync is always project-wide under `--root`, independent of config/app/cache selection. Flags can appear before or after the command. `help` also works without a project and does not create configuration; its command catalog is exempt from analysis output limits. `--help` is human-readable; use `devkit help <command> --json` for machine-readable discovery.
 
 ```bash
 devkit module inspect products --json
@@ -83,6 +84,18 @@ devkit module check all
 ```
 
 Smart case means lowercase queries ignore case; queries containing uppercase letters match case. Content search is line-oriented and produces one result per match. Binary and non-UTF-8 content is skipped. Hidden files are included unless ignored. No shell glob expansion is required; quote patterns and queries.
+
+## Sync Antigravity instructions
+
+After updating the installed CLI, run these from the ElectroERP root (or add `--root "C:\Projects\ElectroERP"`):
+
+```powershell
+devkit agents sync --dry-run
+devkit agents sync
+devkit agents sync --check
+```
+
+Templates in [docs/agents/](docs/agents/README.md) ship with Devkit and sync offline to `.agents/rules/devkit-rules.md`, `.agents/skills/devkit/SKILL.md`, and only the marked Devkit section of `AGENTS.md`. General directives outside that block remain unchanged. Existing custom dedicated files/local edits require a reviewed `--force`; replacements are backed up under `.agents/.devkit-sync/backups/`. Ambiguous Devkit sections are not guessed, even with force. Dry-run/check create nothing; `--check` exits `1` when updates/conflicts need attention. See the guide for first-time migration, nested Windows installs, backups and recovery. Release notes live in [docs/patches/](docs/patches/RELEASE-0.4.0.md).
 
 ## Local feedback
 
@@ -120,7 +133,7 @@ Route tracing supports literal Express calls on named receivers and imported rou
 
 Module checks validate ownership, declared models, required paths, local imports and named exports, handler bindings, hook-to-API imports, Prisma delegate names, source parse health, conventional backend companions, and matching AI tool implementations/documentation. Conventional optional layers and unresolved handler bindings generate warnings. Missing required paths, known missing exports, and missing models fail. Checks do not prove API payload compatibility, business rules, permissions or runtime behavior. Missing live source/schema is reported rather than filled in from uploaded design documents.
 
-AI tool companions match by exact filename within the same app, backend tree and feature/plugin namespace, independent of overlapping manifest ownership. For example, `backend/ai/rag/tools/plugin-e-commerce/create-ecom-note.tool.md` can match `backend/src/plugins/e-commerce/ai/notes/create-ecom-note.tool.ts` even when checked through the broad `ai` module. `plugin-` documentation namespaces match plugin source folders; core feature tool folders remain separate from plugins. Unambiguous module aliases are supported. Missing or ignored companions fail; multiple candidates within the same namespace produce a warning with their paths in `companions`. Unknown or ambiguous layouts only pair same-directory siblings; a broad shared owner such as `ai` is not sufficient evidence of a match. See the [v0.2.1 patch notes](docs/RELEASE-0.2.1.md).
+AI tool companions match by exact filename within the same app, backend tree and feature/plugin namespace, independent of overlapping manifest ownership. For example, `backend/ai/rag/tools/plugin-e-commerce/create-ecom-note.tool.md` can match `backend/src/plugins/e-commerce/ai/notes/create-ecom-note.tool.ts` even when checked through the broad `ai` module. `plugin-` documentation namespaces match plugin source folders; core feature tool folders remain separate from plugins. Unambiguous module aliases are supported. Missing or ignored companions fail; multiple candidates within the same namespace produce a warning with their paths in `companions`. Unknown or ambiguous layouts only pair same-directory siblings; a broad shared owner such as `ai` is not sufficient evidence of a match. See the [v0.2.1 patch notes](docs/patches/RELEASE-0.2.1.md).
 
 Tree-sitter errors generate **warnings about incomplete analysis**, with line/column spans, short snippets and compatibility hints. They are not compiler-verified syntax failures: for example the current TSX grammar can reject bare ampersands in JSX text. Genuine malformed source is also reported as incomplete, never silently called valid. Run your application's TypeScript/build checks to determine source validity. An unresolved export from a partially parsed file is a warning rather than a confirmed missing export.
 
@@ -130,7 +143,7 @@ Tree-sitter errors generate **warnings about incomplete analysis**, with line/co
 
 Every invocation reads and hashes live source content, so same-size edits with preserved modification times are detected even on Windows. Cache identities also include file metadata, project/app scope, merged configuration, ignore contents, parser package versions and the summary-format version. Imports are resolved against the current file catalog, not cached resolution results. Deleted/renamed files disappear immediately; full scans prune stale cache rows. Partial scans do not evict unrelated files. Cache failures/corruption emit a warning and fall back to live parsing. `--no-cache` bypasses cache reads and writes. The cache is disposable and contains source-derived information; do not commit it.
 
-Run `python benchmarks/benchmark.py` from the development environment for a repeatable synthetic workload. Measurements and limitations are documented in [the v0.2.0 notes](docs/RELEASE-0.2.0.md).
+Run `python benchmarks/benchmark.py` from the development environment for a repeatable synthetic workload. Measurements and limitations are documented in [the v0.2.0 notes](docs/patches/RELEASE-0.2.0.md).
 
 ## Agent output contract
 
@@ -138,6 +151,6 @@ JSON analysis responses use `schema_version: "1.0"`, `command`, `root`, `app`, `
 
 Default `--max-results 100` bounds each result collection independently. `--max-output-chars 32000` additionally bounds the whole analysis response (text plus diagnostics, or the complete valid JSON envelope). A tree also has a node budget. Per-list truncation reports collection paths, shown counts, and lower bounds; global truncation instead reports `reason: total_output_budget` and may omit collections or shorten long strings. Check summaries and exit status are preserved. Search stops scanning after finding one extra match. Narrow the scope or explicitly raise both limits to retrieve more; absence from truncated output is not evidence of absence from the project.
 
-Exit codes: **0** success (including no matches), **1** failed module checks, **2** invalid input/configuration or I/O failure. Warnings are separate from failures; an empty test/check selection does not validate an application. Devkit never claims runtime completeness from static evidence.
+Exit codes: **0** success (including no matches), **1** failed module checks or drift/conflicts detected by `agents sync --check`, **2** invalid input/configuration, unsafe/conflicting sync, or I/O failure. Warnings are separate from failures; an empty test/check selection does not validate an application. Devkit never claims runtime completeness from static evidence.
 
-See [Antigravity usage rules](docs/ANTIGRAVITY.md) for the agent workflow.
+See [agent sync and templates](docs/agents/README.md) for the Antigravity workflow.

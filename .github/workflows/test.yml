@@ -19,4 +19,5 @@ jobs:
       - run: uv run ruff format --check src tests
       - run: uv run pytest -q
       - run: uv build
+      - run: uv run --isolated --no-project --with . python tests/smoke_install.py
       - run: uv run devkit help --json

@@ -10,6 +10,7 @@ import sys
 from typing import Any
 
 from . import __version__
+from .agents import AgentsContext, AgentSync
 from .analysis import Analysis
 from .feedback import EVIDENCE, SEVERITIES, STATUSES, TYPES, FeedbackContext, FeedbackStore
 from .modules import Modules
@@ -18,6 +19,11 @@ from .schema import Schema
 from .source import SourceIndex, match_name
 
 EXAMPLES = {
+    "agents sync": [
+        "devkit agents sync --dry-run --root /path/to/ElectroERP",
+        "devkit agents sync --check --json",
+        "devkit agents sync",
+    ],
     "help": ["devkit help", "devkit help module inspect", "devkit help --json"],
     "search": [
         'devkit search "organizationId" backend/src',
@@ -58,6 +64,7 @@ EXAMPLES = {
 }
 
 OUTPUTS = {
+    "agents sync": "Per-file sync plan/status, template version, conflicts and local backup path; --dry-run includes managed-content diffs",
     "feedback add": "Saved local report, stable ID, occurrence count and duplicate flag; no uploads",
     "feedback list": "Local report summaries, filtered total and pagination offset",
     "feedback inspect": "Full local report, sanitized reproduction details and update history",
@@ -145,11 +152,17 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
         if key in OUTPUTS:
             epilog += "\nOutput: " + OUTPUTS[key]
         epilog += (
-            "\nFormats: readable text or --json. Scope: local project feedback and --app. YAML/source are not inspected; --no-cache does not disable durable feedback storage."
+            "\nFormats: readable text or --json. Scope: fixed agent files under --root, independent of --config/--app/--no-cache. Templates are bundled; no network access or source indexing."
+            if key.startswith("agents")
+            else "\nFormats: readable text or --json. Scope: local project feedback and --app. YAML/source are not inspected; --no-cache does not disable durable feedback storage."
             if key.startswith("feedback")
             else "\nFormats: readable text (default) or --json. Scope: project root and --app; only Devkit .ignore applies."
         )
-        epilog += "\nExit codes: 0 success (including empty matches), 1 failed module checks, 2 invalid input/configuration or I/O failure."
+        epilog += (
+            "\nExit codes: 0 success/current, 1 --check detected drift/conflicts, 2 unsafe/conflicting apply or invalid input/storage. --dry-run and --check never write. --force requires explicit approval to replace local edits; backups are always kept."
+            if key.startswith("agents")
+            else "\nExit codes: 0 success (including empty matches), 1 failed module checks, 2 invalid input/configuration or I/O failure."
+        )
         parser = subparsers.add_parser(
             name,
             help=description,
@@ -338,6 +351,27 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
     for name, choices in (("status", STATUSES), ("severity", SEVERITIES), ("evidence", EVIDENCE)):
         update.add_argument("--" + name, choices=choices, help="New " + name)
     update.add_argument("--note", help="Explanation or verification evidence; required for resolved status")
+    agents = add(subs, "agents", "Synchronize bundled Devkit guidance for coding agents.")
+    asubs = agents.add_subparsers(dest="action")
+    sync = add(
+        asubs, "sync", "Sync the dedicated rule/skill and only the Devkit block in AGENTS.md.", "agents"
+    )
+    mode = sync.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview file actions and managed-content diffs without writing",
+    )
+    mode.add_argument(
+        "--check",
+        action="store_true",
+        help="Read-only check: exit 0 when current, 1 when sync/conflict needs attention",
+    )
+    sync.add_argument(
+        "--force",
+        action="store_true",
+        help="Explicitly replace unmanaged/local edits with backups; cannot override unsafe paths or ambiguous AGENTS.md boundaries",
+    )
     return root, registry
 
 
@@ -371,13 +405,19 @@ def catalog(registry: dict[str, Parser], topic: str = "") -> list[dict[str, Any]
                 "arguments": options,
                 "examples": EXAMPLES.get(name, []),
                 "output": OUTPUTS.get(name, "Subcommand group"),
-                "scope": "Local feedback only; YAML/source are not inspected"
+                "scope": "Project-wide fixed agent files under --root; ignores app/config/cache selection"
+                if name.startswith("agents")
+                else "Local feedback only; YAML/source are not inspected"
                 if name.startswith("feedback")
                 else "Selected app and project-local .ignore; help reads no project files",
                 "exit_codes": {
                     "0": "Success (including no matches)",
-                    "1": "Module check failures",
-                    "2": "Invalid input, configuration or I/O failure",
+                    "1": "--check detected drift/conflicts"
+                    if name.startswith("agents")
+                    else "Module check failures",
+                    "2": "Unsafe/conflicting sync or invalid input/storage"
+                    if name.startswith("agents")
+                    else "Invalid input, configuration or I/O failure",
                 },
             }
         )
@@ -481,8 +521,10 @@ def tree(project: Project, args: argparse.Namespace) -> dict[str, Any]:
     return node
 
 
-def execute(project: Project | FeedbackContext, args: argparse.Namespace) -> tuple[Any, int]:
+def execute(project: Project | FeedbackContext | AgentsContext, args: argparse.Namespace) -> tuple[Any, int]:
     command, action = args.command, getattr(args, "action", None)
+    if command == "agents":
+        return AgentSync(project).run(args)
     if command == "feedback":
         store = FeedbackStore(project)
         if action == "inspect":
@@ -679,7 +721,10 @@ def main(argv: list[str] | None = None) -> int:
         if (
             args.command == "help"
             or not args.command
-            or (args.command in {"module", "schema", "trace", "impact", "feedback"} and not args.action)
+            or (
+                args.command in {"module", "schema", "trace", "impact", "feedback", "agents"}
+                and not args.action
+            )
         ):
             topic = " ".join(args.topic) if args.command == "help" else (args.command or "")
             data = catalog(registry, topic)
@@ -693,7 +738,7 @@ def main(argv: list[str] | None = None) -> int:
                     for row in data:
                         print(f"{row['command']:<30} {row['description']}")
             return 0
-        project = (FeedbackContext if args.command == "feedback" else Project)(
+        project = ({"feedback": FeedbackContext, "agents": AgentsContext}.get(args.command, Project))(
             args.root, args.config, args.app
         )
         project.use_cache = not getattr(args, "no_cache", False)
