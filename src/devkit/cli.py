@@ -11,6 +11,7 @@ from typing import Any
 
 from . import __version__
 from .analysis import Analysis
+from .feedback import EVIDENCE, SEVERITIES, STATUSES, TYPES, FeedbackContext, FeedbackStore
 from .modules import Modules
 from .project import DevkitError, Project
 from .schema import Schema
@@ -46,9 +47,21 @@ EXAMPLES = {
     "impact model": ["devkit impact model Product"],
     "impact field": ["devkit impact field Product.baseSellingPrice --json"],
     "impact file": ["devkit impact file backend/src/core/features/products/product.service.ts"],
+    "feedback add": [
+        'devkit feedback add --type bug --title "Existing tool reported missing" --evidence observed --actual "Exit 1"'
+    ],
+    "feedback list": ["devkit feedback list --status open --type bug --json"],
+    "feedback inspect": ["devkit feedback inspect <id> --json"],
+    "feedback update": [
+        'devkit feedback update <id> --status resolved --note "Verified with the reproduction command"'
+    ],
 }
 
 OUTPUTS = {
+    "feedback add": "Saved local report, stable ID, occurrence count and duplicate flag; no uploads",
+    "feedback list": "Local report summaries, filtered total and pagination offset",
+    "feedback inspect": "Full local report, sanitized reproduction details and update history",
+    "feedback update": "Updated local report and status/assessment history; no automatic code changes",
     "help": "Command catalog with usage, arguments, flags, examples and exit codes",
     "search": "Relative path, line, column, matched text and context",
     "find": "Relative paths and file/directory types",
@@ -131,7 +144,11 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
         epilog = "Examples:\n  " + "\n  ".join(examples) if examples else ""
         if key in OUTPUTS:
             epilog += "\nOutput: " + OUTPUTS[key]
-        epilog += "\nFormats: readable text (default) or --json. Scope: project root and --app; only Devkit .ignore applies."
+        epilog += (
+            "\nFormats: readable text or --json. Scope: local project feedback and --app. YAML/source are not inspected; --no-cache does not disable durable feedback storage."
+            if key.startswith("feedback")
+            else "\nFormats: readable text (default) or --json. Scope: project root and --app; only Devkit .ignore applies."
+        )
         epilog += "\nExit codes: 0 success (including empty matches), 1 failed module checks, 2 invalid input/configuration or I/O failure."
         parser = subparsers.add_parser(
             name,
@@ -271,6 +288,56 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
                 kind
             ],
         )
+    feedback = add(subs, "feedback", "Save and review local Devkit feedback; never upload reports.")
+    fsubs = feedback.add_subparsers(dest="action")
+    report = add(
+        fsubs,
+        "add",
+        "Save a sanitized report; exact repeats reuse an ID and increment occurrences.",
+        "feedback",
+    )
+    report.add_argument("--type", choices=TYPES, required=True, help="Feedback category")
+    report.add_argument("--title", required=True, help="Short summary (maximum 200 characters)")
+    report.add_argument("--severity", choices=SEVERITIES, default="medium", help="Impact (default: medium)")
+    report.add_argument(
+        "--evidence",
+        choices=EVIDENCE,
+        default="suspected",
+        help="Agent assessment, not independent verification (default: suspected)",
+    )
+    report.add_argument("--command", dest="reported_command", help="Affected command as text; never executed")
+    report.add_argument("--description", help="Context or requested capability")
+    report.add_argument("--expected", help="Expected behavior")
+    report.add_argument("--actual", help="Observed behavior or error")
+    report.add_argument(
+        "--step", action="append", default=[], help="Reproduction step as text; repeatable, maximum 20"
+    )
+    report.add_argument(
+        "--diagnostics", help="Small, manually sanitized excerpt; never paste secrets or customer data"
+    )
+    listing = add(fsubs, "list", "List local reports, newest update first.", "feedback")
+    for name, choices in (
+        ("type", TYPES),
+        ("severity", SEVERITIES),
+        ("evidence", EVIDENCE),
+        ("status", STATUSES),
+    ):
+        listing.add_argument("--" + name, choices=choices, help="Filter by " + name)
+    listing.add_argument(
+        "--offset", type=bounded_int(0, 10000000), default=0, help="Pagination offset (default: 0)"
+    )
+    inspection = add(fsubs, "inspect", "Read one complete local report by its stable ID.", "feedback")
+    inspection.add_argument("report_id", help="ID returned by feedback add/list")
+    update = add(
+        fsubs,
+        "update",
+        "Record triage changes or a note; resolving requires a verification note.",
+        "feedback",
+    )
+    update.add_argument("report_id", help="ID returned by feedback add/list")
+    for name, choices in (("status", STATUSES), ("severity", SEVERITIES), ("evidence", EVIDENCE)):
+        update.add_argument("--" + name, choices=choices, help="New " + name)
+    update.add_argument("--note", help="Explanation or verification evidence; required for resolved status")
     return root, registry
 
 
@@ -304,7 +371,9 @@ def catalog(registry: dict[str, Parser], topic: str = "") -> list[dict[str, Any]
                 "arguments": options,
                 "examples": EXAMPLES.get(name, []),
                 "output": OUTPUTS.get(name, "Subcommand group"),
-                "scope": "Selected app and project-local .ignore; help reads no project files",
+                "scope": "Local feedback only; YAML/source are not inspected"
+                if name.startswith("feedback")
+                else "Selected app and project-local .ignore; help reads no project files",
                 "exit_codes": {
                     "0": "Success (including no matches)",
                     "1": "Module check failures",
@@ -412,8 +481,13 @@ def tree(project: Project, args: argparse.Namespace) -> dict[str, Any]:
     return node
 
 
-def execute(project: Project, args: argparse.Namespace) -> tuple[Any, int]:
+def execute(project: Project | FeedbackContext, args: argparse.Namespace) -> tuple[Any, int]:
     command, action = args.command, getattr(args, "action", None)
+    if command == "feedback":
+        store = FeedbackStore(project)
+        if action == "inspect":
+            return store.inspect(args.report_id), 0
+        return {"add": store.add, "list": store.list, "update": store.update}[action](args), 0
     if command == "search":
         return search(project, args), 0
     if command == "find":
@@ -605,7 +679,7 @@ def main(argv: list[str] | None = None) -> int:
         if (
             args.command == "help"
             or not args.command
-            or (args.command in {"module", "schema", "trace", "impact"} and not args.action)
+            or (args.command in {"module", "schema", "trace", "impact", "feedback"} and not args.action)
         ):
             topic = " ".join(args.topic) if args.command == "help" else (args.command or "")
             data = catalog(registry, topic)
@@ -619,7 +693,9 @@ def main(argv: list[str] | None = None) -> int:
                     for row in data:
                         print(f"{row['command']:<30} {row['description']}")
             return 0
-        project = Project(args.root, args.config, args.app)
+        project = (FeedbackContext if args.command == "feedback" else Project)(
+            args.root, args.config, args.app
+        )
         project.use_cache = not getattr(args, "no_cache", False)
         data, status = execute(project, args)
         data, truncation = limit_data(data, args.max_results)

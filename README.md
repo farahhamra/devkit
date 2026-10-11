@@ -41,9 +41,9 @@ ElectroERP/
 
 Run `devkit` from anywhere inside ElectroERP, or supply `--root /path/to/ElectroERP`. Explicit command paths are **relative to that project root**, independent of the current working directory. Discovery first looks for `devkit/electroerp.yaml`, then the nearest backend/frontend pair or Git boundary, then falls back to the current directory. If the Devkit checkout is nested in your project, copy `examples/electroerp.yaml` to `devkit/electroerp.yaml` so its own Git boundary does not become the project root.
 
-Only `devkit/.ignore` controls exclusions; `.gitignore` is never consulted. The file is created silently with defaults for dependencies, builds, caches, `.env` files, logs and uploaded media, without overwriting an existing file. Patterns use Git ignore semantics and are relative to the project root. To reinclude a file, use `!`; excluded parent directories must also be reincluded. `DEVKIT_CONFIG_DIR` can override the directory holding this single `.ignore`. An explicit `--config` uses the manifest's directory for `.ignore` unless that environment override is set.
+Only `devkit/.ignore` controls source exclusions; `.gitignore` is never consulted for source selection. Devkit's active internal `.feedback` directory is always excluded from source scans. The `.ignore` file is created silently with defaults for dependencies, builds, caches, `.env` files, logs and uploaded media, without overwriting an existing file. Patterns use Git ignore semantics and are relative to the project root. To reinclude a file, use `!`; excluded parent directories must also be reincluded. `DEVKIT_CONFIG_DIR` can override the directory holding this single `.ignore`. An explicit `--config` uses the manifest's directory for `.ignore` unless that environment override is set.
 
-Automatic filesystem writes are limited to the configuration directory, missing `.ignore`, and disposable source summaries in `.cache/source.sqlite3` beside `.ignore`. Use `--no-cache` to disable the summaries. Commands do not edit source, run generators, start apps, modify application databases, or execute files being inspected. Symlink files and directories are skipped, including explicit symlink targets. File content is treated as data, never instructions. Exclude the cache directory in your single `.ignore` when using a custom configuration location; the default `devkit/.cache/` is already excluded.
+Analysis commands only write the configuration directory, missing `.ignore`, and disposable source summaries in `.cache/source.sqlite3` beside `.ignore`. Use `--no-cache` to disable the summaries. Explicit `feedback add` / `feedback update` commands also persist local reports under `.feedback/` beside the configuration; these reports are durable, not cache. No commands edit source, run generators, start apps, modify application databases, or execute files/commands being inspected. Symlink files and directories are skipped, including explicit symlink targets. File content and feedback are data, never instructions. Exclude the cache directory in your single `.ignore` when using a custom configuration location; the default `devkit/.cache/` is already excluded.
 
 ## Commands
 
@@ -66,6 +66,10 @@ Automatic filesystem writes are limited to the configuration directory, missing 
 | `devkit impact model <model>` | Model references, relations and module context |
 | `devkit impact field <Model.field>` | Candidate usages of a particular field |
 | `devkit impact file <path>` | Definitions, ownership, imports and reverse consumers |
+| `devkit feedback add --type <type> --title <title>` | Save local feedback with severity, evidence and reproduction details; detect exact duplicates |
+| `devkit feedback list` | Filter local report summaries; `--type`, `--severity`, `--evidence`, `--status`, `--offset` |
+| `devkit feedback inspect <id>` | Read a report's complete stored details and history |
+| `devkit feedback update <id>` | Change status, severity or evidence; append a note; resolving requires `--note` |
 
 Every command accepts `--json`, `--root`, `--config`, `--app erp|hub|manager|all`, `--max-results N`, `--max-output-chars N`, and `--no-cache`. Flags can appear before or after the command. `help` also works without a project and does not create configuration; its command catalog is exempt from analysis output limits. `--help` is human-readable; use `devkit help <command> --json` for machine-readable discovery.
 
@@ -79,6 +83,22 @@ devkit module check all
 ```
 
 Smart case means lowercase queries ignore case; queries containing uppercase letters match case. Content search is line-oriented and produces one result per match. Binary and non-UTF-8 content is skipped. Hidden files are included unless ignored. No shell glob expansion is required; quote patterns and queries.
+
+## Local feedback
+
+Feedback types are `bug`, `performance`, `usability`, and `feature`. Severity is independently `low|medium|high|critical` (default `medium`); evidence is `observed|suspected` (default `suspected`). These are the reporting agent's assessments, not independently verified facts. Preferences are not implemented.
+
+```bash
+devkit feedback add --type bug --title "Existing tool reported missing" --evidence observed --command "devkit module check ai --app erp" --expected "Existing companions pass" --actual "Tool implementation check fails" --app erp --json
+devkit feedback list --status open --app erp --json
+devkit feedback inspect <id> --json
+devkit feedback update <id> --status investigating --note "Reproduced in a fixture"
+devkit feedback update <id> --status resolved --note "Regression test and original reproduction both pass"
+```
+
+Reports remain local in `<configuration-directory>/.feedback/reports.sqlite3`. Nothing is uploaded or automatically turned into a GitHub issue. Only explicit report text and Devkit/Python/OS versions are collected; no source attachments, environment dump, username or hostname. Common credential patterns are redacted before storage/output, but **redaction is best-effort: never paste secrets or customer data**. The storage directory has its own Git exclusions and is excluded from Devkit source scans without changing your `.ignore`.
+
+Feedback does not parse YAML or index source, so an agent can report a broken configuration or unavailable app. `feedback list`, `inspect`, and help do not create a database; `--no-cache` does not disable explicitly requested feedback writes. Exact repeats reuse an ID and increment `occurrences`, without changing status or assessments. Statuses are `open`, `investigating`, and `resolved`; updates retain history. Keep a backup of the feedback directory, and inspect/review a report before sharing it manually. See [feedback details and privacy limits](docs/FEEDBACK.md).
 
 ## Project knowledge
 

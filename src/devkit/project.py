@@ -102,6 +102,7 @@ class Project:
         self._validate_config()
         config_dir = Path(os.environ.get("DEVKIT_CONFIG_DIR", str(self.config_path.parent))).expanduser()
         self.ignore_file = config_dir / ".ignore"
+        self.feedback_directory = (config_dir / ".feedback").absolute()
         try:
             config_dir.mkdir(parents=True, exist_ok=True)
             try:
@@ -210,6 +211,10 @@ class Project:
         return result
 
     def allowed(self, path: Path, directory: bool = False) -> bool:
+        # Durable reports may contain diagnostics. They are internal state, not
+        # project source, and must not recursively feed searches/module analysis.
+        if _inside(path, self.feedback_directory):
+            return False
         relative = self.rel(path) + ("/" if directory else "")
         return not self.ignore.match_file(relative)
 
