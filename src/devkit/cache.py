@@ -11,7 +11,7 @@ from pathlib import Path
 from .project import Project
 
 # Bump when the extracted record format or parser behavior changes.
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 class ParseCache:
@@ -82,6 +82,9 @@ class ParseCache:
                     info.get("path") != relative
                     or not isinstance(info.get("imports"), list)
                     or not isinstance(info.get("exports"), dict)
+                    or not isinstance(info.get("errors"), bool)
+                    or not isinstance(info.get("dynamic_imports"), list)
+                    or not all(type(line) is int and line > 0 for line in info["dynamic_imports"])
                 ):
                     raise ValueError("invalid cached source metadata")
                 # Treat invalid JSON summaries as misses, not executable/trusted input.

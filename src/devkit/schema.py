@@ -181,12 +181,25 @@ def parse_schema(source: str, path: str = "schema.prisma", app: str | None = Non
 class Schema:
     def __init__(self, project: Project) -> None:
         self.project = project
-        self.paths = project.schema_paths()
-        self.declarations = [
-            d
-            for p in self.paths
-            for d in parse_schema(project.text(p) or "", project.rel(p), project.app_for(p))
-        ]
+        selected = project.schema_paths()
+        self.paths = []
+        self.declarations = []
+        for path in selected:
+            relative = project.rel(path)
+            content = project.text(path)
+            if content is None:
+                project.coverage.gap("schema_unreadable", relative, stage="schema")
+                continue
+            try:
+                declarations = parse_schema(content, relative, project.app_for(path))
+            except DevkitError:
+                project.coverage.gap("schema_parse_error", relative, stage="schema")
+                raise
+            self.paths.append(path)
+            self.declarations.extend(declarations)
+            project.coverage.record("schema_analyzed", relative)
+        project.coverage.finish("schema")
+        project.coverage.details["schema_declarations"] = len(self.declarations)
         self.models = [d for d in self.declarations if d["kind"] == "model"]
         for model in self.models:
             types = {d["name"]: d["kind"] for d in self.declarations if d["path"] == model["path"]}

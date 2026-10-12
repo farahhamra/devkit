@@ -59,7 +59,17 @@ def main():
             "report"
         ]
         assert invoke("feedback", "inspect", report["id"])["data"]["title"] == "Package smoke test"
-    print("Installed-package smoke checks passed: read-only diagnostics, bundled sync, backups and feedback.")
+        source = root / "backend/src/example.ts"
+        source.parent.mkdir(parents=True)
+        source.write_text("export const example = 1;", encoding="utf-8")
+        symbols = invoke("symbols", "backend/src/example.ts")["coverage"]
+        assert symbols["status"] == "complete" and symbols["counts"]["source_analyzed"] == 1
+        assert symbols["stages"]["schema"] == "not_run"
+        source.write_text("export const example = ;", encoding="utf-8")
+        for _ in range(2):
+            symbols = invoke("symbols", "backend/src/example.ts")["coverage"]
+            assert symbols["status"] == "partial" and symbols["counts"]["source_partial"] == 1
+    print("Installed-package smoke checks passed: diagnostics, coverage, bundled sync, backups and feedback.")
 
 
 if __name__ == "__main__":

@@ -47,6 +47,9 @@ def match_name(query: str, value: str) -> bool:
 class SourceIndex:
     def __init__(self, project: Project, paths: list[Path] | None = None) -> None:
         self.project = project
+        coverage = project.coverage
+        coverage.start("source")
+        coverage.details["source_extensions"] = sorted(SOURCE_EXTENSIONS)
         self.files: dict[str, dict[str, Any]] = {}
         self.symbols: list[dict[str, Any]] = []
         self.references: list[dict[str, Any]] = []
@@ -61,6 +64,18 @@ class SourceIndex:
             "tsx": Parser(Language(typescript.language_tsx())),
         }
         selected = paths if paths is not None else project.files()
+
+        def analyzed(relative, info):
+            coverage.record("source_analyzed", relative)
+            if info["errors"]:
+                coverage.record("source_partial", relative)
+                coverage.gap("source_parse_error", relative, stage="source")
+
+        for path in selected:
+            if path.suffix in SOURCE_EXTENSIONS:
+                coverage.record("source_selected", project.rel(path))
+            else:
+                coverage.exclude("not_source_language", project.rel(path))
         for path in selected:
             if path.suffix not in SOURCE_EXTENSIONS:
                 continue
@@ -69,9 +84,11 @@ class SourceIndex:
                 stamp = cache.stamp(path)
             except OSError as exc:
                 project.warnings.append(f"Cannot stat {relative}: {exc}")
+                coverage.gap("source_stat_error", relative, stage="source")
                 continue
             content = project.text(path)
             if content is None:
+                coverage.gap("source_unreadable", relative, stage="source")
                 continue
             content_bytes = content.encode("utf-8")
             # Hash live content even on a metadata hit: Windows ctime can be birth
@@ -85,12 +102,20 @@ class SourceIndex:
                 self.calls.extend(cached["calls"])
                 project.warnings.extend(cached["warnings"])
                 self.stats["cached_files"] += 1
+                analyzed(relative, cached["info"])
+                coverage.record("source_cached", relative)
+                try:
+                    if cache.stamp(path) != stamp:
+                        coverage.gap("source_changed_during_read", relative, stage="source")
+                except OSError:
+                    coverage.gap("source_changed_during_read", relative, stage="source")
                 continue
             lang = (
                 "tsx" if path.suffix == ".tsx" else "ts" if path.suffix in {".ts", ".mts", ".cts"} else "js"
             )
             tree = parsers[lang].parse(content_bytes)
             self.stats["parsed_files"] += 1
+            coverage.record("source_parsed", relative)
             offsets = (len(self.symbols), len(self.references), len(self.calls), len(project.warnings))
             info = {
                 "path": relative,
@@ -100,6 +125,7 @@ class SourceIndex:
                 "initializers": {},
                 "errors": tree.root_node.has_error,
                 "diagnostics": [],
+                "dynamic_imports": [],
             }
             self.files[relative] = info
             if tree.root_node.has_error:
@@ -135,6 +161,7 @@ class SourceIndex:
                 )
             self._content = content_bytes
             self._parse(tree.root_node, info)
+            analyzed(relative, info)
             try:
                 unchanged = cache.stamp(path) == stamp
             except OSError:
@@ -151,7 +178,10 @@ class SourceIndex:
                         "warnings": project.warnings[offsets[3] :],
                     },
                 )
+            else:
+                coverage.gap("source_changed_during_read", relative, stage="source")
         cache.finish(set(self.files) if paths is None else None)
+        coverage.finish("source")
         self._resolve_imports(resolve=paths is None)
 
     def _preview(self, node: Node | None, limit: int = 240) -> str:
@@ -287,6 +317,7 @@ class SourceIndex:
                             {**location, "specifier": spec, "bindings": bindings, "kind": "require"}
                         )
                     else:
+                        info["dynamic_imports"].append(line + 1)
                         self.project.warnings.append(
                             f"Dynamic import cannot be resolved at {path}:{line + 1}"
                         )
@@ -359,10 +390,16 @@ class SourceIndex:
         )
 
     def _resolve_imports(self, resolve: bool = True) -> None:
+        coverage = self.project.coverage
+        if resolve:
+            coverage.start("dependencies")
         symbols = defaultdict(list)
         for symbol in self.symbols:
             symbols[(symbol["path"], symbol["name"])].append(symbol)
         for info in self.files.values():
+            if resolve:
+                for line in info["dynamic_imports"]:
+                    coverage.gap("dynamic_import", info["path"], stage="dependencies", line=line)
             for item in info["imports"]:
                 if not resolve:
                     continue
@@ -371,13 +408,21 @@ class SourceIndex:
                 if item["resolved"]:
                     self.forward[item["path"]].append(item)
                     self.reverse[item["resolved"]].append(item)
-                if not item["resolved"] and (item["specifier"] or "").startswith((".", "@/")):
+                local = (item["specifier"] or "").startswith(
+                    (".", "@/", *self.project.config.get("import_aliases", {}))
+                )
+                if not item["resolved"] and local:
+                    coverage.gap(
+                        "unresolved_local_import", info["path"], stage="dependencies", line=item["line"]
+                    )
                     self.project.warnings.append(
                         f"Unresolved local import {item['specifier']} at {info['path']}:{item['line']}"
                     )
             for exported in info["exports"].values():
                 for symbol in symbols[(info["path"], exported)]:
                     symbol["exported"] = True
+        if resolve:
+            coverage.finish("dependencies")
 
     def export_origin(
         self, path: str, exported: str, seen: set[tuple[str, str]] | None = None
@@ -407,6 +452,10 @@ class SourceIndex:
         return None
 
     def dependencies(self, path: str, reverse: bool = False, depth: int = 1) -> list[dict[str, Any]]:
+        limits = self.project.coverage.details.setdefault("dependency_depth_limits", [])
+        if depth not in limits:
+            limits.append(depth)
+            limits.sort()
         adjacency = self.reverse if reverse else self.forward
         frontier = {path}
         visited = {path}
@@ -476,6 +525,12 @@ class SourceIndex:
             if receiver not in self.files[call["path"]]["routers"]:
                 continue
             first = call["literals"][0] if call["literals"] else None
+            if (method in methods and first is None) or (
+                method == "use" and first is None and len(call["arguments"]) > 1
+            ):
+                self.project.coverage.gap(
+                    "nonliteral_route_or_mount", call["path"], stage="dependencies", line=call["line"]
+                )
             if method in methods and first is not None:
                 routes.append(
                     {
@@ -511,6 +566,7 @@ class SourceIndex:
 
         def prefixes(path: str, seen: set[str]) -> list[tuple[str, list[dict[str, Any]]]]:
             if path in seen:
+                self.project.coverage.gap("route_mount_cycle", path, stage="dependencies")
                 return [("", [])]
             parents = [m for m in mounts if m["child"] == path]
             if not parents:

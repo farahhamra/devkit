@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from .modules import Modules, layer
-from .project import DevkitError, Project
+from .project import SOURCE_EXTENSIONS, DevkitError, Project
 from .schema import Schema
 from .source import SourceIndex
 
@@ -99,6 +99,8 @@ class Analysis:
         if path not in self.project.files():
             raise DevkitError(f"File is ignored or outside app scope: {value}")
         relative = self.project.rel(path)
+        if path.suffix not in SOURCE_EXTENSIONS | {".prisma"}:
+            self.project.coverage.gap("unsupported_impact_target", relative, stage="source")
         owners = self.modules.owners_of_file(relative)
         result: dict[str, Any] = {
             "path": relative,

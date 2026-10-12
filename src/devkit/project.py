@@ -7,6 +7,8 @@ import stat
 from pathlib import Path
 from typing import Any
 
+from .coverage import Coverage
+
 DEFAULT_IGNORE = """# Devkit exclusions, relative to the ElectroERP project root.
 # This is the only ignore file Devkit reads. Git ignore files are not consulted.
 .git/
@@ -225,10 +227,11 @@ class Configuration:
 
 
 class Project(Configuration):
-    def __init__(self, root=None, config=None, app="all") -> None:
+    def __init__(self, root=None, config=None, app="all", *, coverage=None) -> None:
         import pathspec
 
         super().__init__(root, config, app)
+        self.coverage = coverage if coverage is not None else Coverage()
         self._files: list[Path] | None = None
         self._texts: dict[Path, str | None] = {}
         self._app_roots: dict[str, list[Path]] = {}
@@ -278,12 +281,15 @@ class Project(Configuration):
         return result
 
     def allowed(self, path: Path, directory: bool = False) -> bool:
+        return self.exclusion(path, directory) is None
+
+    def exclusion(self, path: Path, directory: bool = False) -> str | None:
         # Durable reports may contain diagnostics. They are internal state, not
         # project source, and must not recursively feed searches/module analysis.
         if _inside(path, self.feedback_directory) or _inside(path, self.root / ".agents/.devkit-sync"):
-            return False
+            return "internal_storage"
         relative = self.rel(path) + ("/" if directory else "")
-        return not self.ignore.match_file(relative)
+        return "ignore_rule" if self.ignore.match_file(relative) else None
 
     def in_scope(self, path: Path, directory: bool = False) -> bool:
         if self.app == "all":
@@ -293,42 +299,69 @@ class Project(Configuration):
         )
 
     def entries(self, path: str | Path = ".", *, directories: bool = False) -> list[Path]:
+        coverage = self.coverage
+        coverage.start("discovery")
         target = self.resolve(path)
         # Explicit targets cannot bypass ignore rules on themselves or ancestors.
         for ancestor in (target, *target.parents):
             if ancestor == self.root:
                 break
-            if not self.allowed(ancestor, ancestor.is_dir()):
+            reason = self.exclusion(ancestor, ancestor.is_dir())
+            if reason:
+                coverage.exclude(reason, self.rel(ancestor))
+                coverage.gap("requested_path_excluded", self.rel(target))
+                coverage.finish("discovery")
                 return []
         if not self.in_scope(target, target.is_dir()):
             raise DevkitError(f"Path is outside selected app '{self.app}': {path}")
         if target.is_file():
+            if not directories:
+                coverage.record("files", self.rel(target))
+            coverage.finish("discovery")
             return [target] if not directories else []
+        if not target.is_dir():
+            coverage.exclude("non_regular", self.rel(target))
+            coverage.gap("requested_path_non_regular", self.rel(target))
+            coverage.finish("discovery")
+            return []
         found: list[Path] = []
 
         def on_error(exc: OSError) -> None:
             self.warnings.append(f"Cannot traverse {exc.filename}: {exc.strerror}")
+            coverage.gap("traversal_error", str(exc.filename))
+
+        def eligible(item: Path, directory: bool):
+            relative = self.rel(item)
+            if not self.in_scope(item, directory):
+                coverage.exclude("app_scope", relative)
+                return False
+            reason = self.exclusion(item, directory)
+            if reason:
+                coverage.exclude(reason, relative)
+                return False
+            try:
+                info = item.lstat()
+                if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                    coverage.exclude("symlink_or_junction", relative)
+                    return False
+                if not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)):
+                    coverage.exclude("non_regular", relative)
+                    return False
+            except OSError:
+                coverage.gap("stat_error", relative)
+                return False
+            coverage.record("directories" if directory else "files", relative)
+            return True
 
         for current, dirs, files in os.walk(target, followlinks=False, onerror=on_error):
             parent = Path(current)
-            dirs[:] = sorted(
-                d
-                for d in dirs
-                if not (parent / d).is_symlink()
-                and self.allowed(parent / d, True)
-                and self.in_scope(parent / d, True)
-            )
+            coverage.record("directories", self.rel(parent))
+            dirs[:] = sorted(d for d in dirs if eligible(parent / d, True))
             if directories:
                 found.extend(parent / d for d in dirs)
             else:
-                found.extend(
-                    parent / f
-                    for f in sorted(files)
-                    if not (parent / f).is_symlink()
-                    and (parent / f).is_file()
-                    and self.allowed(parent / f)
-                    and self.in_scope(parent / f)
-                )
+                found.extend(parent / f for f in sorted(files) if eligible(parent / f, False))
+        coverage.finish("discovery")
         return sorted(found)
 
     def files(self) -> list[Path]:
@@ -338,30 +371,52 @@ class Project(Configuration):
 
     def text(self, path: Path) -> str | None:
         if path not in self._texts:
+            self.coverage.start("text")
+            relative = self.rel(path)
+            reason = None
             try:
                 # A FIFO or device must never block source discovery. Recheck after traversal.
-                if not stat.S_ISREG(path.stat().st_mode):
-                    self._texts[path] = None
-                    return None
-                with path.open("rb") as handle:
-                    head = handle.read(8192)
-                    if b"\x00" in head:
-                        self._texts[path] = None
-                        return None
-                    data = head + handle.read()
-                self._texts[path] = None if b"\x00" in data else data.decode("utf-8-sig")
+                info = path.lstat()
+                if not stat.S_ISREG(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                    reason = "file_became_unsafe"
+                else:
+                    with path.open("rb") as handle:
+                        head = handle.read(8192)
+                        data = head if b"\x00" in head else head + handle.read()
+                    if b"\x00" in data:
+                        reason = "binary_content"
+                    else:
+                        self._texts[path] = data.decode("utf-8-sig")
             except UnicodeDecodeError:
-                self._texts[path] = None
+                reason = "non_utf8"
             except OSError as exc:
                 self.warnings.append(f"Cannot read {self.rel(path)}: {exc.strerror}")
+                reason = "read_error"
+            if reason:
                 self._texts[path] = None
+                self.coverage.record("text_skipped", relative)
+                self.coverage.gap(reason, relative, stage="text")
+            else:
+                self.coverage.record("text_read", relative)
+            self.coverage.finish("text")
         return self._texts[path]
 
     def schema_paths(self) -> list[Path]:
+        self.coverage.start("schema")
         eligible = set(self.files())
         paths = []
         for app, entry in self.config["apps"].items():
             if self.app != "all" and app != self.app:
                 continue
-            paths.extend(self.resolve(p, must_exist=False) for p in entry.get("schemas", []))
-        return sorted({p for p in paths if p in eligible} | {p for p in eligible if p.suffix == ".prisma"})
+            for raw in entry.get("schemas", []):
+                path = self.resolve(raw, must_exist=False)
+                paths.append(path)
+                self.coverage.record("schema_selected", self.rel(path))
+                if path not in eligible:
+                    self.coverage.gap("configured_schema_unavailable", raw, stage="schema")
+        selected = sorted(
+            {p for p in paths if p in eligible} | {p for p in eligible if p.suffix == ".prisma"}
+        )
+        for path in selected:
+            self.coverage.record("schema_selected", self.rel(path))
+        return selected

@@ -49,6 +49,18 @@ Use `devkit help <command...> --json` for the authoritative options of the insta
 
 ## Workflows
 
+### Read analysis coverage before trusting results
+
+All analysis commands return a top-level `coverage` object in JSON (a summary on stderr in text mode). Read it alongside `data`, warnings and exit status:
+
+- `status: complete` means processing finished for selected eligible inputs under supported static capabilities, not runtime correctness or repository-wide completeness.
+- `status: partial` means a known gap: for example missing configured paths/schemas, unreadable content, parse errors, unresolved local/dynamic imports or an early-stopped search. `not_analyzed` means no processing started or a required stage had no analyzable inputs. Do not describe empty results in either case as proof of no references/impact.
+- `stages` distinguish discovery, text reads, source parsing, schema parsing and dependency resolution; `not_run` is not a pass. `symbols <path>` remains targeted and does not claim full import resolution. `find`/`tree` do not claim content analysis.
+- `counts`, `gaps` and `exclusions` measure unique inputs/locations actually encountered, not hidden descendants or a whole-project percentage. Details identify app availability, selected scope/filters, parser capabilities and unavailable modules omitted by `module check all`.
+- `coverage.output_truncated` is separate from analysis status. A complete scan may have an incomplete display. Summary counts persist under limits; `details_truncated` means scope/issue details were shortened or omitted. Narrow scope or deliberately raise limits before relying on missing evidence.
+
+Cold/warm caches retain the same parser/dependency gaps. Coverage does not change exit codes: exit `0` can still mean partial analysis, and exit `1` reports check findings, not coverage quality. Use doctor/config validation to diagnose setup gaps and the actual application compiler/tests to establish correctness.
+
 ### Installation or configuration problems
 
 ```powershell

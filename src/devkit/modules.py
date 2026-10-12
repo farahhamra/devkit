@@ -376,11 +376,18 @@ class Modules:
         }
 
     def check(self, value: str) -> dict[str, Any]:
+        catalog = self.catalog() if value == "all" else []
         names = (
-            [row["name"] for row in self.catalog() if row["available"]]
-            if value == "all"
-            else [self.get_name(value)]
+            [row["name"] for row in catalog if row["available"]] if value == "all" else [self.get_name(value)]
         )
+        self.project.coverage.details["module_check_selection"] = {
+            "requested": value,
+            "checked_modules": names,
+            "unavailable_modules_not_checked": [row["name"] for row in catalog if not row["available"]],
+        }
+        for row in catalog:
+            if not row["available"]:
+                self.project.coverage.record("modules_unavailable", row["name"])
         source = self.source or SourceIndex(self.project)
         checks = []
         if not names:
@@ -574,6 +581,7 @@ class Modules:
                         + (delegates[delegate] if exists else "no matching model in available schemas"),
                         call["path"],
                     )
+            self.project.coverage.record("modules_checked", name)
         return {
             "modules": names,
             "checks": checks,

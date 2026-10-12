@@ -11,6 +11,7 @@ from typing import Any
 
 from . import __version__
 from .agents import AgentsContext, AgentSync
+from .coverage import Coverage, coverage_line
 from .diagnostics import DiagnosticContext, Diagnostics
 from .feedback import EVIDENCE, SEVERITIES, STATUSES, TYPES, FeedbackContext, FeedbackStore
 from .project import DevkitError, Project
@@ -165,7 +166,7 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
             if key.startswith("agents")
             else "\nFormats: readable text or --json. Scope: local project feedback and --app. YAML/source are not inspected; --no-cache does not disable durable feedback storage."
             if key.startswith("feedback")
-            else "\nFormats: readable text (default) or --json. Scope: project root and --app; only Devkit .ignore applies."
+            else "\nFormats: readable text (default) or --json. Scope: project root and --app; only Devkit .ignore applies. Analysis includes measured coverage (stages, counts, gaps and exclusions); complete processing is not runtime proof."
         )
         epilog += (
             "\nExit codes: 0 successful inspection or checks without failures (warnings may remain), 1 doctor/config validate found failed checks, 2 invalid arguments/root or inspection could not complete."
@@ -429,7 +430,7 @@ def catalog(registry: dict[str, Parser], topic: str = "") -> list[dict[str, Any]
                 if name.startswith("agents")
                 else "Local feedback only; YAML/source are not inspected"
                 if name.startswith("feedback")
-                else "Selected app and project-local .ignore; help reads no project files",
+                else "Selected app and project-local .ignore; analysis reports measured coverage, not runtime completeness. Help reads no project files",
                 "exit_codes": {
                     "0": "Success (including no matches)",
                     "1": "Diagnostic checks failed (doctor/config validate)"
@@ -459,13 +460,19 @@ def matcher(query: str, regex: bool = False):
 def search(project: Project, args: argparse.Namespace) -> list[dict[str, Any]]:
     pattern = matcher(args.query, args.regex)
     result = []
-    # Stop after one extra result: that is sufficient to report truncation honestly.
+    project.coverage.start("text")
+    selected = []
     for path in project.entries(args.path):
-        relative = project.rel(path)
         if args.glob and not any(
-            fnmatch.fnmatchcase(relative, g) or fnmatch.fnmatchcase(path.name, g) for g in args.glob
+            fnmatch.fnmatchcase(project.rel(path), g) or fnmatch.fnmatchcase(path.name, g) for g in args.glob
         ):
-            continue
+            project.coverage.exclude("glob_filter", project.rel(path))
+        else:
+            selected.append(path)
+    project.coverage.details["search_candidate_files"] = len(selected)
+    # Stop after one extra result: that is sufficient to report truncation honestly.
+    for path in selected:
+        relative = project.rel(path)
         content = project.text(path)
         if content is None:
             continue
@@ -490,7 +497,9 @@ def search(project: Project, args: argparse.Namespace) -> list[dict[str, Any]]:
                     }
                 )
                 if len(result) > args.max_results:
+                    project.coverage.gap("search_result_limit", relative, stage="text", line=index + 1)
                     return result
+    project.coverage.finish("text")
     return result
 
 
@@ -696,6 +705,11 @@ def bound_output(result: dict[str, Any], maximum: int, output) -> None:
     if len(output()) + 2 <= maximum:
         return
     result["truncated"] = True
+    coverage = result.get("coverage")
+    if coverage:
+        coverage["output_truncated"] = True
+        if coverage.pop("details", None) is not None:
+            coverage["details_truncated"] = True
     result["truncation"] = [
         {
             "reason": "total_output_budget",
@@ -724,11 +738,14 @@ def bound_output(result: dict[str, Any], maximum: int, output) -> None:
             elif isinstance(value, str) and len(value) > 160:
                 candidates.append((len(value), parent, key, value))
 
-        visit(result["data"], result, "data")
-        visit(result["warnings"], result, "warnings")
+        if "data" in result:
+            visit(result["data"], result, "data")
+        if "error" in result:
+            visit(result["error"], result, "error")
+        visit(result.get("warnings", []), result, "warnings")
         if not candidates:
             # A very wide scalar mapping cannot be pruned safely field-by-field.
-            summary = result["data"].get("summary") if isinstance(result["data"], dict) else None
+            summary = result["data"].get("summary") if isinstance(result.get("data"), dict) else None
             result["data"] = {
                 "message": "Result omitted to fit output budget",
                 **({"summary": summary} if summary else {}),
@@ -744,6 +761,7 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     json_mode = "--json" in argv
     command = ""
+    coverage = None
     try:
         parser, registry = build_parser()
         args = parser.parse_args(argv)
@@ -773,14 +791,18 @@ def main(argv: list[str] | None = None) -> int:
                     for row in data:
                         print(f"{row['command']:<30} {row['description']}")
             return 0
-        project = (
-            {
-                "feedback": FeedbackContext,
-                "agents": AgentsContext,
-                "doctor": DiagnosticContext,
-                "config": DiagnosticContext,
-            }.get(args.command, Project)
-        )(args.root, args.config, args.app)
+        context = {
+            "feedback": FeedbackContext,
+            "agents": AgentsContext,
+            "doctor": DiagnosticContext,
+            "config": DiagnosticContext,
+        }.get(args.command, Project)
+        if context is Project:
+            coverage = Coverage()
+            project = Project(args.root, args.config, args.app, coverage=coverage)
+            coverage.configure(project, args)
+        else:
+            project = context(args.root, args.config, args.app)
         project.use_cache = not getattr(args, "no_cache", False)
         data, status = execute(project, args)
         data, truncation = limit_data(data, args.max_results)
@@ -802,6 +824,16 @@ def main(argv: list[str] | None = None) -> int:
             "truncated": bool(truncation),
             "truncation": truncation,
         }
+        if coverage:
+            measured = coverage.report()
+            measured["details"], omitted = limit_data(
+                measured["details"], args.max_results, "coverage.details"
+            )
+            measured["details_truncated"] = bool(omitted)
+            result["truncation"].extend(omitted)
+            result["truncated"] = bool(result["truncation"])
+            measured["output_truncated"] = result["truncated"]
+            result["coverage"] = measured
         maximum = getattr(args, "max_output_chars", 32000)
         output = lambda: (
             json.dumps(result, ensure_ascii=False)
@@ -809,6 +841,7 @@ def main(argv: list[str] | None = None) -> int:
             else "\n".join(render_tree(result["data"]) if args.command == "tree" else render(result["data"]))
             + "\n"
             + "\n".join("Warning: " + w for w in result["warnings"])
+            + ("\n" + coverage_line(result["coverage"]) if coverage else "")
             + (
                 "\nResults truncated; increase --max-results / --max-output-chars or narrow the query."
                 if result["truncated"]
@@ -838,16 +871,29 @@ def main(argv: list[str] | None = None) -> int:
                 )
             for warning in result["warnings"]:
                 print("Warning: " + warning, file=sys.stderr)
+            if coverage:
+                print(coverage_line(result["coverage"]), file=sys.stderr)
         return status
     except BrokenPipeError:
         return 0
     except (DevkitError, OSError, ValueError, ImportError) as exc:
+        measured = None
+        if coverage:
+            coverage.aborted = True
+            coverage.gap("analysis_aborted", stage="discovery")
+            measured = coverage.report()
         if json_mode:
-            print(
-                json.dumps(
-                    {"schema_version": "1.0", "command": command, "error": {"message": str(exc), "code": 2}}
+            result = {"schema_version": "1.0", "command": command, "error": {"message": str(exc), "code": 2}}
+            if measured:
+                measured["details"], omitted = limit_data(
+                    measured["details"], args.max_results, "coverage.details"
                 )
-            )
+                measured["details_truncated"] = measured["output_truncated"] = bool(omitted)
+                result.update(coverage=measured, truncated=bool(omitted), truncation=omitted)
+                bound_output(result, getattr(args, "max_output_chars", 32000), lambda: json.dumps(result))
+            print(json.dumps(result))
         else:
             print(f"devkit: {exc}", file=sys.stderr)
+            if measured:
+                print(coverage_line(measured), file=sys.stderr)
         return 2

@@ -112,7 +112,7 @@ devkit agents sync
 devkit agents sync --check
 ```
 
-Templates in [docs/agents/](docs/agents/README.md) ship with Devkit and sync offline to `.agents/rules/devkit-rules.md`, `.agents/skills/devkit/SKILL.md`, and only the marked Devkit section of `AGENTS.md`. General directives outside that block remain unchanged. Existing custom dedicated files/local edits require a reviewed `--force`; replacements are backed up under `.agents/.devkit-sync/backups/`. Ambiguous Devkit sections are not guessed, even with force. Dry-run/check create nothing; `--check` exits `1` when updates/conflicts need attention. See the guide for first-time migration, nested Windows installs, backups and recovery. Release notes live in [docs/patches/](docs/patches/RELEASE-0.5.0.md).
+Templates in [docs/agents/](docs/agents/README.md) ship with Devkit and sync offline to `.agents/rules/devkit-rules.md`, `.agents/skills/devkit/SKILL.md`, and only the marked Devkit section of `AGENTS.md`. General directives outside that block remain unchanged. Existing custom dedicated files/local edits require a reviewed `--force`; replacements are backed up under `.agents/.devkit-sync/backups/`. Ambiguous Devkit sections are not guessed, even with force. Dry-run/check create nothing; `--check` exits `1` when updates/conflicts need attention. See the guide for first-time migration, nested Windows installs, backups and recovery. Release notes live in [docs/patches/](docs/patches/RELEASE-0.6.0.md).
 
 ## Local feedback
 
@@ -164,7 +164,11 @@ Run `python benchmarks/benchmark.py` from the development environment for a repe
 
 ## Agent output contract
 
-JSON analysis responses use `schema_version: "1.0"`, `command`, `root`, `app`, `data`, `warnings`, `truncated`, and `truncation`. Help returns a versioned catalog. Errors return `error.message` and `error.code`. Diagnostics stay out of successful JSON stdout.
+JSON analysis responses use `schema_version: "1.0"`, `command`, `root`, `app`, `data`, `warnings`, `coverage`, `truncated`, and `truncation`. Help returns a versioned catalog. Errors return `error.message` and `error.code`; recognized analysis invocations also report coverage when setup or execution fails. Human-readable analysis writes a coverage summary to stderr; JSON keeps it inside the envelope.
+
+Every source-analysis command (`search`, `find`, `tree`, `symbols`, `module`, `schema`, `trace`, `impact`) reports measured `coverage.status`, per-stage status, unique file counts, typed gaps and exclusions, with scope/app availability and details. `complete` means selected eligible inputs were processed under the command's static capabilities—not complete project knowledge or runtime correctness. `partial` means known gaps; `not_analyzed` means analysis did not start or a required stage had no analyzable inputs. Stages not used by a command are `not_run`: finding paths is not parsing their contents. Missing configured roots/schemas, read failures, parse errors and unresolved local/dynamic imports cannot silently look like complete analysis. Optional unconfigured apps remain explicitly listed, not treated as verified empty apps.
+
+Output truncation is separate: a full scan may have truncated display, while a search stopped at its result limit has partial analysis too. Coverage status/counts/gap totals and check summaries survive output budgeting; coverage details may be omitted with `details_truncated: true`. Counts describe this invocation, not a guessed percentage of unseen/ignored descendants. Cold/warm caches preserve parser/dependency gaps, and single-path symbols stay targeted. See [coverage semantics and examples](docs/COVERAGE.md).
 
 Default `--max-results 100` bounds each result collection independently. `--max-output-chars 32000` additionally bounds the whole analysis response (text plus diagnostics, or the complete valid JSON envelope). A tree also has a node budget. Per-list truncation reports collection paths, shown counts, and lower bounds; global truncation instead reports `reason: total_output_budget` and may omit collections or shorten long strings. Check summaries and exit status are preserved. Search stops scanning after finding one extra match. Narrow the scope or explicitly raise both limits to retrieve more; absence from truncated output is not evidence of absence from the project.
 
