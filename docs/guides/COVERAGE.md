@@ -1,6 +1,6 @@
 # Consistent analysis coverage (v0.6.0)
 
-Coverage is automatic, not a new command. Every invocation of `search`, `find`, `tree`, `symbols`, `module`, `schema`, `trace` or `impact` includes a top-level `coverage` object in JSON. Human-readable analysis prints a compact summary to stderr. Existing `data` shapes and envelope `schema_version: "1.0"` remain unchanged. Help, diagnostics, feedback and agent synchronization do not claim source-analysis coverage.
+Coverage is automatic, not a new command. Every invocation of `search`, `find`, `tree`, `symbols`, `analyze`, `module`, `schema`, `trace` or `impact` includes a top-level `coverage` object in JSON. Human-readable analysis prints a compact summary to stderr. Existing `data` shapes and envelope `schema_version: "1.0"` remain unchanged. Help, diagnostics, feedback and agent synchronization do not claim source-analysis coverage.
 
 ## Interpret the three independent signals
 

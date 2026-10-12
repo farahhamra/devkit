@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,10 @@ def main():
     resources = files("devkit").joinpath("agent_templates")
     assert resources.is_dir(), "Installed packages must include templates, not depend on checkout fallback"
     assert {p.name for p in resources.iterdir()} == set(TARGETS.values())
+    for template in resources.iterdir():
+        content = template.read_text(encoding="utf-8")
+        assert "analyze <file>" in content
+        assert not re.search(r"\b(?:prefer|must use|always use)\b[^.\n]*\banalyze\b", content, re.IGNORECASE)
     with tempfile.TemporaryDirectory(prefix="ElectroERP project with spaces ") as directory:
         root = Path(directory)
 
@@ -65,11 +70,24 @@ def main():
         symbols = invoke("symbols", "backend/src/example.ts")["coverage"]
         assert symbols["status"] == "complete" and symbols["counts"]["source_analyzed"] == 1
         assert symbols["stages"]["schema"] == "not_run"
+        source.write_text(
+            "export function outer() {\n  function inner() { return 1; }\n  return inner();\n}",
+            encoding="utf-8",
+        )
+        for _ in range(2):
+            briefing = invoke("analyze", "backend/src/example.ts", "--symbol", "outer.inner")
+            parent, child = briefing["data"]["symbols"]
+            assert child["parent_id"] == parent["id"]
+            assert child["line"] == child["end_line"] == 2
+            assert briefing["data"]["summary"]["source_complete"]
+            assert briefing["coverage"]["counts"]["source_analyzed"] == 1
         source.write_text("export const example = ;", encoding="utf-8")
         for _ in range(2):
             symbols = invoke("symbols", "backend/src/example.ts")["coverage"]
             assert symbols["status"] == "partial" and symbols["counts"]["source_partial"] == 1
-    print("Installed-package smoke checks passed: diagnostics, coverage, bundled sync, backups and feedback.")
+    print(
+        "Installed-package smoke checks passed: diagnostics, analyze, coverage, bundled sync, backups and feedback."
+    )
 
 
 if __name__ == "__main__":

@@ -40,6 +40,11 @@ EXAMPLES = {
         "devkit symbols backend/src --exported-only",
         "devkit symbols --name Product --kind interface",
     ],
+    "analyze": [
+        "devkit analyze backend/src/core/features/products/product.service.ts --app erp --json",
+        "devkit analyze backend/src/core/features/products/product.service.ts --symbol listProducts --json",
+        "devkit analyze backend/src/core/features/products/product.service.ts --with-context --app erp --json",
+    ],
     "module list": ["devkit module list --app erp"],
     "module inspect": [
         "devkit module inspect products",
@@ -82,6 +87,7 @@ OUTPUTS = {
     "find": "Relative paths and file/directory types",
     "tree": "Nested path nodes, names, types and children",
     "symbols": "Symbol name, kind, location, signature and export status",
+    "analyze": "Numbered source, exact source spans, lexical symbol hierarchy, imports/exports, call/reference/route/Prisma candidates and coverage; optional selected-app context",
     "module list": "Module names, aliases, applications, available layers and counts",
     "module inspect": "Owned models/tables, enums, dependencies, consumers, missing models and categorized files with reasons",
     "module impact": "Schema consumers, dependent modules, import consumers, coupled files and validation areas",
@@ -221,6 +227,17 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
         "--depth", type=bounded_int(0, 20), default=3, help="Levels below target (default: 3, max: 20)"
     )
     tree.add_argument("--dirs-only", action="store_true", help="Include directories only")
+    analyze = add(subs, "analyze", "Brief one JS/TS/JSX/TSX file with numbered source and lexical structure.")
+    analyze.add_argument("path", help="Single source file relative to project root")
+    analyze.add_argument(
+        "--symbol",
+        help="Exact case-sensitive name, qualified name or file-local symbol ID; ambiguous matches fail",
+    )
+    analyze.add_argument(
+        "--with-context",
+        action="store_true",
+        help="Opt in to selected-app-wide import/consumer, module and schema context (file-level)",
+    )
     symbols = add(subs, "symbols", "List parsed JavaScript/TypeScript definitions (including JSX/TSX).")
     symbols.add_argument("path", nargs="?", default=".", help="Directory/file relative to project root")
     symbols.add_argument("--name", help="Smart-case substring filter on names")
@@ -574,6 +591,10 @@ def execute(
         return find(project, args), 0
     if command == "tree":
         return tree(project, args), 0
+    if command == "analyze":
+        from .analyze import analyze
+
+        return analyze(project, args), 0
     if command == "symbols":
         from .source import SourceIndex, match_name
 
@@ -805,6 +826,7 @@ def main(argv: list[str] | None = None) -> int:
             project = context(args.root, args.config, args.app)
         project.use_cache = not getattr(args, "no_cache", False)
         data, status = execute(project, args)
+        original_analysis = data if args.command == "analyze" else None
         data, truncation = limit_data(data, args.max_results)
         if args.command == "tree" and data["truncated"]:
             truncation.append(
@@ -835,20 +857,33 @@ def main(argv: list[str] | None = None) -> int:
             measured["output_truncated"] = result["truncated"]
             result["coverage"] = measured
         maximum = getattr(args, "max_output_chars", 32000)
-        output = lambda: (
-            json.dumps(result, ensure_ascii=False)
-            if args.json
-            else "\n".join(render_tree(result["data"]) if args.command == "tree" else render(result["data"]))
-            + "\n"
-            + "\n".join("Warning: " + w for w in result["warnings"])
-            + ("\n" + coverage_line(result["coverage"]) if coverage else "")
-            + (
-                "\nResults truncated; increase --max-results / --max-output-chars or narrow the query."
-                if result["truncated"]
-                else ""
+
+        def output():
+            if original_analysis is not None:
+                from .analyze import refresh_display_summary
+
+                refresh_display_summary(result["data"], original_analysis)
+            return (
+                json.dumps(result, ensure_ascii=False)
+                if args.json
+                else "\n".join(
+                    render_tree(result["data"]) if args.command == "tree" else render(result["data"])
+                )
+                + "\n"
+                + "\n".join("Warning: " + w for w in result["warnings"])
+                + ("\n" + coverage_line(result["coverage"]) if coverage else "")
+                + (
+                    "\nResults truncated; increase --max-results / --max-output-chars or narrow the query."
+                    if result["truncated"]
+                    else ""
+                )
             )
-        )
+
         bound_output(result, maximum, output)
+        if original_analysis is not None:
+            from .analyze import refresh_display_summary
+
+            refresh_display_summary(result["data"], original_analysis)
         if args.command == "tree" and any(
             t.get("reason") == "total_output_budget" for t in result["truncation"]
         ):

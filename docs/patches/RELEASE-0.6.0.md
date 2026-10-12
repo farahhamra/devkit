@@ -7,4 +7,4 @@
 - Made parser/dynamic-import coverage consistent on cold, warm and uncached runs. Incremented disposable source-cache format to `2`; old summaries rebuild automatically, without resetting feedback or agent-sync backups.
 - Updated bundled agent guidance, usage documentation, regression tests and installed-package smoke checks.
 
-See [coverage semantics](../COVERAGE.md). `complete` means processing selected eligible inputs with supported static capabilities, not complete project understanding, compiler validation or runtime/business correctness. Existing exit-code meanings remain unchanged; no strict mode, repair, preference synchronization or new analysis command is added.
+See [coverage semantics](../guides/COVERAGE.md). `complete` means processing selected eligible inputs with supported static capabilities, not complete project understanding, compiler validation or runtime/business correctness. Existing exit-code meanings remain unchanged; no strict mode, repair, preference synchronization or new analysis command is added.

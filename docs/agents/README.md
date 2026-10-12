@@ -10,6 +10,10 @@
 
 No complete general `AGENTS.md` is stored as a template. Project-specific rule/skill additions belong in separate files, and general agent directives belong outside the Devkit block.
 
+## Maintaining command descriptions
+
+For each command addition or change, update the templates with its syntax, functionality, output and limitations. Leave command/tool selection to the agent; do not add preference language such as "prefer analyze" or mandatory workflows for new commands. Capability descriptions do not grant additional permissions or replace existing safety boundaries. User guides live in `docs/guides/`, release notes in `docs/patches/`, and these templates in `docs/agents/`; no documentation files belong directly in `docs/`.
+
 ## Usage
 
 From the ElectroERP project root (not a nested Devkit repository):

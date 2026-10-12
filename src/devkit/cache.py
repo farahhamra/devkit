@@ -9,9 +9,10 @@ from importlib.metadata import version
 from pathlib import Path
 
 from .project import Project
+from .structure import valid_outline, valid_span
 
 # Bump when the extracted record format or parser behavior changes.
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 
 class ParseCache:
@@ -82,11 +83,24 @@ class ParseCache:
                     info.get("path") != relative
                     or not isinstance(info.get("imports"), list)
                     or not isinstance(info.get("exports"), dict)
+                    or not isinstance(info.get("export_statements"), list)
                     or not isinstance(info.get("errors"), bool)
                     or not isinstance(info.get("dynamic_imports"), list)
                     or not all(type(line) is int and line > 0 for line in info["dynamic_imports"])
                 ):
                     raise ValueError("invalid cached source metadata")
+                if "outline" in info and not valid_outline(info["outline"], relative):
+                    raise ValueError("invalid cached source outline")
+                locations = (
+                    result["symbols"]
+                    + result["references"]
+                    + result["calls"]
+                    + info["imports"]
+                    + info["export_statements"]
+                    + info.get("diagnostics", [])
+                )
+                if not all(valid_span(row, relative) for row in locations):
+                    raise ValueError("invalid cached source spans")
                 # Treat invalid JSON summaries as misses, not executable/trusted input.
                 if not all(
                     isinstance(r, dict) and r.get("path") == relative and "name" in r
@@ -94,7 +108,12 @@ class ParseCache:
                 ):
                     raise ValueError("invalid cached locations")
                 if not all(
-                    isinstance(r, dict) and r.get("path") == relative and "callee" in r
+                    isinstance(r, dict)
+                    and r.get("path") == relative
+                    and "callee" in r
+                    and type(r.get("start_byte")) is int
+                    and type(r.get("end_byte")) is int
+                    and 0 <= r["start_byte"] < r["end_byte"]
                     for r in result["calls"]
                 ):
                     raise ValueError("invalid cached calls")

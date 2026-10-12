@@ -57,6 +57,7 @@ Analysis commands only write the configuration directory, missing `.ignore`, and
 | `devkit find <pattern> [path]` | Smart-case path substring search; `--regex`, `--type`, repeatable `--extension` |
 | `devkit tree [path]` | Project tree; `--depth N` (default 3), `--dirs-only` |
 | `devkit symbols [path]` | JS/TS/JSX/TSX definitions; `--name`, repeatable `--kind`, `--exported-only` |
+| `devkit analyze <path>` | Single-file briefing with numbered source, exact evidence spans and lexical hierarchy; `--symbol`, opt-in `--with-context` |
 | `devkit module list` | Configured/discovered modules and available layers |
 | `devkit module inspect <module>` | Models, tables, enums, dependencies, consumers, categorized files and reasons |
 | `devkit module impact <module>` | Cross-module schema and import consumers, documentation and validation areas |
@@ -88,6 +89,20 @@ devkit module check all
 
 Smart case means lowercase queries ignore case; queries containing uppercase letters match case. Content search is line-oriented and produces one result per match. Binary and non-UTF-8 content is skipped. Hidden files are included unless ignored. No shell glob expansion is required; quote patterns and queries.
 
+## Analyze a source file
+
+```powershell
+devkit analyze backend/src/core/features/products/product.service.ts --app erp --json
+devkit analyze backend/src/core/features/products/product.service.ts --symbol listProducts --app erp --json
+devkit analyze backend/src/core/features/products/product.service.ts --with-context --app erp --json
+```
+
+`analyze` provides evidence for the agent to reason about: numbered implementation lines, declarations and lexical nesting, import/export statements, call/reference/route/Prisma candidates and parser diagnostics. Every source-backed record has a relative file path and inclusive 1-based `line` / `end_line`, not just functions. Exact byte columns/offsets distinguish same-line constructs; `parent_id` and `children_ids` explicitly identify lexical containment. Aggregates such as module names and summary counts do not get invented source locations.
+
+Default analysis parses **only the chosen file**. `--symbol` selects an exact name, qualified name or file-local ID; ambiguous names are rejected. `--with-context` explicitly scans the selected app for resolved imports, reverse consumers, module ownership and live-schema candidates. It can be substantially more expensive. Neither mode executes source or replaces the agent's reasoning, type checks or tests.
+
+Read `coverage`, `truncated`, and `data.summary.source_complete` / `structure_complete` before trusting missing evidence. Source lines count toward `--max-results`; character limits can shorten text too. Narrow to a symbol or deliberately raise limits when necessary. See [analysis output and range semantics](docs/guides/ANALYZE.md).
+
 ## Diagnose installation and configuration
 
 ```powershell
@@ -100,7 +115,7 @@ These commands do not create `.ignore`/cache/feedback/sync files, scan source, c
 
 Configuration inspection shows the same merge used by analysis: named app/module overrides replace whole entries, not individual fields. It also explains which root/manifest/ignore/storage directory is selected. In a nested installation, use `--root <ElectroERP>` and `--config <ElectroERP>/.agents/devkit/electroerp.yaml` when appropriate; `DEVKIT_CONFIG_DIR` does not select a manifest. Unknown setting values and raw configuration/feedback/agent contents are not dumped.
 
-Doctor/validation exit `1` for failed checks, `0` if there are no failures (warnings may remain), and `2` if inspection cannot complete. `config inspect` returns `2` for invalid/unreadable configuration. Check summaries survive output truncation. Permission estimates are not actual write tests, and successful diagnostics do not validate Prisma syntax, database health or the application. See [diagnostic details and limits](docs/DIAGNOSTICS.md).
+Doctor/validation exit `1` for failed checks, `0` if there are no failures (warnings may remain), and `2` if inspection cannot complete. `config inspect` returns `2` for invalid/unreadable configuration. Check summaries survive output truncation. Permission estimates are not actual write tests, and successful diagnostics do not validate Prisma syntax, database health or the application. See [diagnostic details and limits](docs/guides/DIAGNOSTICS.md).
 
 ## Sync Antigravity instructions
 
@@ -112,7 +127,7 @@ devkit agents sync
 devkit agents sync --check
 ```
 
-Templates in [docs/agents/](docs/agents/README.md) ship with Devkit and sync offline to `.agents/rules/devkit-rules.md`, `.agents/skills/devkit/SKILL.md`, and only the marked Devkit section of `AGENTS.md`. General directives outside that block remain unchanged. Existing custom dedicated files/local edits require a reviewed `--force`; replacements are backed up under `.agents/.devkit-sync/backups/`. Ambiguous Devkit sections are not guessed, even with force. Dry-run/check create nothing; `--check` exits `1` when updates/conflicts need attention. See the guide for first-time migration, nested Windows installs, backups and recovery. Release notes live in [docs/patches/](docs/patches/RELEASE-0.6.0.md).
+Templates in [docs/agents/](docs/agents/README.md) ship with Devkit and sync offline to `.agents/rules/devkit-rules.md`, `.agents/skills/devkit/SKILL.md`, and only the marked Devkit section of `AGENTS.md`. General directives outside that block remain unchanged. Existing custom dedicated files/local edits require a reviewed `--force`; replacements are backed up under `.agents/.devkit-sync/backups/`. Ambiguous Devkit sections are not guessed, even with force. Dry-run/check create nothing; `--check` exits `1` when updates/conflicts need attention. See the guide for first-time migration, nested Windows installs, backups and recovery. Release notes live in [docs/patches/](docs/patches/RELEASE-0.7.0.md); command and feature guides live in [docs/guides/](docs/guides/).
 
 ## Local feedback
 
@@ -128,7 +143,7 @@ devkit feedback update <id> --status resolved --note "Regression test and origin
 
 Reports remain local in `<configuration-directory>/.feedback/reports.sqlite3`. Nothing is uploaded or automatically turned into a GitHub issue. Only explicit report text and Devkit/Python/OS versions are collected; no source attachments, environment dump, username or hostname. Common credential patterns are redacted before storage/output, but **redaction is best-effort: never paste secrets or customer data**. The storage directory has its own Git exclusions and is excluded from Devkit source scans without changing your `.ignore`.
 
-Feedback does not parse YAML or index source, so an agent can report a broken configuration or unavailable app. `feedback list`, `inspect`, and help do not create a database; `--no-cache` does not disable explicitly requested feedback writes. Exact repeats reuse an ID and increment `occurrences`, without changing status or assessments. Statuses are `open`, `investigating`, and `resolved`; updates retain history. Keep a backup of the feedback directory, and inspect/review a report before sharing it manually. See [feedback details and privacy limits](docs/FEEDBACK.md).
+Feedback does not parse YAML or index source, so an agent can report a broken configuration or unavailable app. `feedback list`, `inspect`, and help do not create a database; `--no-cache` does not disable explicitly requested feedback writes. Exact repeats reuse an ID and increment `occurrences`, without changing status or assessments. Statuses are `open`, `investigating`, and `resolved`; updates retain history. Keep a backup of the feedback directory, and inspect/review a report before sharing it manually. See [feedback details and privacy limits](docs/guides/FEEDBACK.md).
 
 ## Project knowledge
 
@@ -156,7 +171,7 @@ Tree-sitter errors generate **warnings about incomplete analysis**, with line/co
 
 ## Incremental analysis
 
-`symbols <path>` enumerates and parses only that selection. Trace/impact/check commands still inspect the selected project's source to preserve reverse dependencies, but reuse per-file JSON summaries across invocations. Exports and import adjacency use indexed lookups; the module catalog scans document identifiers once rather than once per module/model.
+`symbols <path>` enumerates and parses only that selection; `analyze <file>` parses only that file unless `--with-context` is passed. Trace/impact/check commands still inspect the selected project's source to preserve reverse dependencies, but reuse per-file JSON summaries across invocations. Exports and import adjacency use indexed lookups; the module catalog scans document identifiers once rather than once per module/model.
 
 Every invocation reads and hashes live source content, so same-size edits with preserved modification times are detected even on Windows. Cache identities also include file metadata, project/app scope, merged configuration, ignore contents, parser package versions and the summary-format version. Imports are resolved against the current file catalog, not cached resolution results. Deleted/renamed files disappear immediately; full scans prune stale cache rows. Partial scans do not evict unrelated files. Cache failures/corruption emit a warning and fall back to live parsing. `--no-cache` bypasses cache reads and writes. The cache is disposable and contains source-derived information; do not commit it.
 
@@ -166,9 +181,9 @@ Run `python benchmarks/benchmark.py` from the development environment for a repe
 
 JSON analysis responses use `schema_version: "1.0"`, `command`, `root`, `app`, `data`, `warnings`, `coverage`, `truncated`, and `truncation`. Help returns a versioned catalog. Errors return `error.message` and `error.code`; recognized analysis invocations also report coverage when setup or execution fails. Human-readable analysis writes a coverage summary to stderr; JSON keeps it inside the envelope.
 
-Every source-analysis command (`search`, `find`, `tree`, `symbols`, `module`, `schema`, `trace`, `impact`) reports measured `coverage.status`, per-stage status, unique file counts, typed gaps and exclusions, with scope/app availability and details. `complete` means selected eligible inputs were processed under the command's static capabilities—not complete project knowledge or runtime correctness. `partial` means known gaps; `not_analyzed` means analysis did not start or a required stage had no analyzable inputs. Stages not used by a command are `not_run`: finding paths is not parsing their contents. Missing configured roots/schemas, read failures, parse errors and unresolved local/dynamic imports cannot silently look like complete analysis. Optional unconfigured apps remain explicitly listed, not treated as verified empty apps.
+Every source-analysis command (`search`, `find`, `tree`, `symbols`, `analyze`, `module`, `schema`, `trace`, `impact`) reports measured `coverage.status`, per-stage status, unique file counts, typed gaps and exclusions, with scope/app availability and details. `complete` means selected eligible inputs were processed under the command's static capabilities—not complete project knowledge or runtime correctness. `partial` means known gaps; `not_analyzed` means analysis did not start or a required stage had no analyzable inputs. Stages not used by a command are `not_run`: finding paths is not parsing their contents. Missing configured roots/schemas, read failures, parse errors and unresolved local/dynamic imports cannot silently look like complete analysis. Optional unconfigured apps remain explicitly listed, not treated as verified empty apps.
 
-Output truncation is separate: a full scan may have truncated display, while a search stopped at its result limit has partial analysis too. Coverage status/counts/gap totals and check summaries survive output budgeting; coverage details may be omitted with `details_truncated: true`. Counts describe this invocation, not a guessed percentage of unseen/ignored descendants. Cold/warm caches preserve parser/dependency gaps, and single-path symbols stay targeted. See [coverage semantics and examples](docs/COVERAGE.md).
+Output truncation is separate: a full scan may have truncated display, while a search stopped at its result limit has partial analysis too. Coverage status/counts/gap totals and check summaries survive output budgeting; coverage details may be omitted with `details_truncated: true`. Counts describe this invocation, not a guessed percentage of unseen/ignored descendants. Cold/warm caches preserve parser/dependency gaps, and single-path symbols stay targeted. See [coverage semantics and examples](docs/guides/COVERAGE.md).
 
 Default `--max-results 100` bounds each result collection independently. `--max-output-chars 32000` additionally bounds the whole analysis response (text plus diagnostics, or the complete valid JSON envelope). A tree also has a node budget. Per-list truncation reports collection paths, shown counts, and lower bounds; global truncation instead reports `reason: total_output_budget` and may omit collections or shorten long strings. Check summaries and exit status are preserved. Search stops scanning after finding one extra match. Narrow the scope or explicitly raise both limits to retrieve more; absence from truncated output is not evidence of absence from the project.
 

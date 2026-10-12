@@ -43,7 +43,7 @@ class Coverage:
     def configure(self, project, args):
         if args.command == "search":
             self.required.add("text")
-        if args.command in {"symbols", "trace", "impact"} or (
+        if args.command in {"symbols", "analyze", "trace", "impact"} or (
             args.command == "module" and args.action in {"impact", "check"}
         ):
             self.required.add("source")
@@ -51,6 +51,8 @@ class Coverage:
             self.required.add("schema")
         target = getattr(args, "path", ".")
         selected = project.resolve(target, False)
+        if args.command == "analyze" and args.with_context:
+            selected = project.root
         self.details["scope"] = {
             "app": project.app,
             "path": target,
@@ -76,10 +78,14 @@ class Coverage:
                     "include_shared",
                     "method",
                     "full",
+                    "symbol",
+                    "with_context",
                 )
                 if hasattr(args, k)
             },
         }
+        if args.command == "analyze":
+            self.details["scope"]["context_scan"] = "selected_app" if args.with_context else "not_requested"
         apps = []
         for name, entry in project.config["apps"].items():
             active = project.app in {"all", name}

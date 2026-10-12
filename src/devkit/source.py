@@ -16,6 +16,7 @@ from tree_sitter import Language, Node, Parser
 
 from .cache import ParseCache
 from .project import SOURCE_EXTENSIONS, Project
+from .structure import outline, span
 
 
 def walk(node: Node) -> Iterator[Node]:
@@ -45,7 +46,7 @@ def match_name(query: str, value: str) -> bool:
 
 
 class SourceIndex:
-    def __init__(self, project: Project, paths: list[Path] | None = None) -> None:
+    def __init__(self, project: Project, paths: list[Path] | None = None, *, detailed: bool = False) -> None:
         self.project = project
         coverage = project.coverage
         coverage.start("source")
@@ -95,6 +96,8 @@ class SourceIndex:
             # time and tools may preserve mtime/size while changing a file.
             identity = stamp + ":" + hashlib.sha256(content_bytes).hexdigest()
             cached = cache.get(relative, identity)
+            if cached is not None and detailed and "outline" not in cached["info"]:
+                cached = None
             if cached is not None:
                 self.files[relative] = cached["info"]
                 self.symbols.extend(cached["symbols"])
@@ -121,6 +124,7 @@ class SourceIndex:
                 "path": relative,
                 "imports": [],
                 "exports": {},
+                "export_statements": [],
                 "routers": [],
                 "initializers": {},
                 "errors": tree.root_node.has_error,
@@ -142,10 +146,7 @@ class SourceIndex:
                     )
                     info["diagnostics"].append(
                         {
-                            "line": node.start_point.row + 1,
-                            "column": node.start_point.column + 1,
-                            "end_line": node.end_point.row + 1,
-                            "end_column": node.end_point.column + 1,
+                            **span(node, content_bytes, relative),
                             "kind": "missing_node" if node.is_missing else "parser_error",
                             "snippet": snippet,
                             "hint": hint,
@@ -161,6 +162,8 @@ class SourceIndex:
                 )
             self._content = content_bytes
             self._parse(tree.root_node, info)
+            if detailed:
+                info["outline"] = outline(tree.root_node, content_bytes, relative)
             analyzed(relative, info)
             try:
                 unchanged = cache.stamp(path) == stamp
@@ -206,8 +209,8 @@ class SourceIndex:
             "function_signature": "function",
         }
         for node in walk(root):
-            line, column = node.start_point
-            location = {"path": path, "line": line + 1, "column": column + 1}
+            line = node.start_point.row
+            location = span(node, self._content, path)
             name_node = node.child_by_field_name("name")
             kind = kinds.get(node.type)
             if node.type == "variable_declarator":
@@ -235,7 +238,6 @@ class SourceIndex:
                     **location,
                     "name": text(name_node),
                     "kind": kind,
-                    "end_line": node.end_point.row + 1,
                     "exported": exported,
                     "signature": self._preview(node).splitlines()[0],
                     "evidence": "definition",
@@ -266,6 +268,14 @@ class SourceIndex:
                 )
             if node.type == "export_statement":
                 spec = literal(node.child_by_field_name("source"))
+                info["export_statements"].append(
+                    {
+                        **location,
+                        "specifier": spec,
+                        "statement": self._preview(node),
+                        "evidence": "parsed_export_statement",
+                    }
+                )
                 clause = next((c for c in node.named_children if c.type == "export_clause"), None)
                 bindings = {}
                 if clause:
@@ -293,7 +303,6 @@ class SourceIndex:
                     "arguments": [self._preview(a) for a in args],
                     "arguments_truncated": any(a.end_byte - a.start_byte > 240 for a in args),
                     "literals": [literal(a) for a in args],
-                    "end_line": node.end_point.row + 1,
                     "evidence": "parsed_call",
                 }
                 self.calls.append(call)
