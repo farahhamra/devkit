@@ -33,7 +33,9 @@ def test_analysis_templates_describe_capabilities_without_tool_preference(name):
     content = (DOCS / "agents" / name).read_text(encoding="utf-8")
     assert "analyze <file>" in content
     assert "query <pattern>" in content
+    for command in ("routes", "isolation", "security", "dependencies", "unused", "duplicates"):
+        assert f"audit {command} [path]" in content
     assert "--symbol" in content and "--with-context" in content
     assert not re.search(
-        r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query)\b", content, re.IGNORECASE
+        r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query|audit)\b", content, re.IGNORECASE
     )

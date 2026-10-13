@@ -1,0 +1,49 @@
+rules:
+  - id: dynamic-eval
+    languages: [javascript, typescript]
+    message: Dynamic evaluation candidate
+    severity: ERROR
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+  - id: shell-command
+    languages: [javascript, typescript]
+    message: Shell command execution candidate
+    severity: WARNING
+    pattern-either:
+      - pattern: child_process.exec(...)
+      - pattern: child_process.execSync(...)
+      - pattern: $CP.exec(...)
+      - pattern: $CP.execSync(...)
+  - id: raw-sql
+    languages: [javascript, typescript]
+    message: Unsafe raw SQL candidate
+    severity: ERROR
+    pattern-either:
+      - pattern: $DB.$queryRawUnsafe(...)
+      - pattern: $DB.$executeRawUnsafe(...)
+  - id: tls-disabled
+    languages: [javascript, typescript]
+    message: TLS verification disabled
+    severity: ERROR
+    pattern: "{ ..., rejectUnauthorized: false, ... }"
+  - id: jwt-unverified
+    languages: [javascript, typescript]
+    message: JWT decode without verification candidate
+    severity: WARNING
+    pattern: jwt.decode(...)
+  - id: hardcoded-secret
+    languages: [javascript, typescript]
+    message: Hardcoded credential candidate
+    severity: WARNING
+    patterns:
+      - pattern-either:
+          - pattern: const $KEY = "$VALUE"
+          - pattern: let $KEY = "$VALUE"
+          - pattern: var $KEY = "$VALUE"
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (?i)^(password|secret|api_?key|access_?token|private_?key)$
+      - metavariable-regex:
+          metavariable: $VALUE
+          regex: .{8,}

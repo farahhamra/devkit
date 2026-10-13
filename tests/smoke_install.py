@@ -25,10 +25,16 @@ def main():
     resources = files("devkit").joinpath("agent_templates")
     assert resources.is_dir(), "Installed packages must include templates, not depend on checkout fallback"
     assert {p.name for p in resources.iterdir()} == set(TARGETS.values())
+    audit_assets = files("devkit").joinpath("audit")
+    assert audit_assets.joinpath("security.yaml").is_file()
+    assert audit_assets.joinpath("unused.mjs").is_file()
+    assert audit_assets.joinpath("knip-plugins.mjs").is_file()
     for template in resources.iterdir():
         content = template.read_text(encoding="utf-8")
         assert "analyze <file>" in content
         assert "query <pattern>" in content
+        assert "audit routes [path]" in content
+        assert "audit duplicates [path]" in content
         assert not re.search(
             r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query)\b", content, re.IGNORECASE
         )

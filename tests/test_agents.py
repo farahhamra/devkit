@@ -91,7 +91,10 @@ def test_legacy_migration_preserves_general_directives_exactly(tmp_path, capsys,
     suffix = "\n\n## Other operations\n\n```powershell\npython memory.py sync\n```\nUnicode: café\n"
     original = bom + (prefix + legacy + suffix).replace("\n", ending).encode()
     path = write(tmp_path, "AGENTS.md", original)
-    preview = invoke(tmp_path, capsys, "--dry-run")["data"]
+    # Full migration diffs can exceed the normal display budget as templates grow.
+    preview_result = invoke(tmp_path, capsys, "--dry-run", "--max-output-chars", "100000")
+    assert not preview_result["truncated"]
+    preview = preview_result["data"]
     assert preview["files"][2]["action"] == "migrate"
     assert "python memory.py" not in preview["files"][2]["diff"]
     assert path.read_bytes() == original

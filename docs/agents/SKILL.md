@@ -31,6 +31,12 @@ Use `devkit help <command...> --json` for the authoritative options of the insta
 | `devkit symbols [path]` | Targeted JS/TS/JSX/TSX definitions; `--name`, `--kind`, `--exported-only` |
 | `devkit analyze <file>` | Numbered source and structured evidence with exact spans/lexical hierarchy; `--symbol`, opt-in `--with-context` |
 | `devkit query <pattern> [path]` | Structural syntax matches/captures through optional ast-grep 0.50.x; `--lang`, `--timeout` |
+| `devkit audit routes [path]` | Configured Express authentication/roles/permissions and middleware order; `--policy`, `--strict` |
+| `devkit audit isolation [path]` | Configured organization scope on direct Prisma calls; `--policy`, `--strict` |
+| `devkit audit security [path]` | Bundled Semgrep Community security candidates with source spans; `--fail-on`, `--timeout` |
+| `devkit audit dependencies [path]` | OSV-Scanner lockfile advisories; online lookup or `--offline` / `--offline-db` |
+| `devkit audit unused [path]` | Knip graph and TypeScript-aware ESLint local binding candidates; explicit policy entries or repeatable `--entry` |
+| `devkit audit duplicates [path]` | jscpd token clone candidates with both occurrences; `--min-lines`, `--min-tokens` |
 | `devkit module list` | Configured and discovered module names |
 | `devkit module inspect <module>` | Owned/reference files, Prisma models/tables, enums and related modules; `--scope`, `--related` |
 | `devkit module impact <module>` | Cross-module schema/import consumers |
@@ -61,7 +67,15 @@ All analysis commands return a top-level `coverage` object in JSON (a summary on
 - `counts`, `gaps` and `exclusions` measure unique inputs/locations actually encountered, not hidden descendants or a whole-project percentage. Details identify app availability, selected scope/filters, parser capabilities and unavailable modules omitted by `module check all`.
 - `coverage.output_truncated` is separate from analysis status. A complete scan may have an incomplete display. Summary counts persist under limits; `details_truncated` means scope/issue details were shortened or omitted. Narrow scope or deliberately raise limits before relying on missing evidence.
 
-Cold/warm caches retain the same parser/dependency gaps. Coverage does not change exit codes: exit `0` can still mean partial analysis, and exit `1` reports check findings, not coverage quality. Use doctor/config validation to diagnose setup gaps and the actual application compiler/tests to establish correctness.
+Cold/warm caches retain the same parser/dependency gaps. Exit `0` can still mean partial analysis. Audits additionally offer `--strict`, which exits `1` for incomplete coverage; other analysis commands retain their existing exit semantics. Use doctor/config validation to diagnose setup gaps and the actual application compiler/tests to establish correctness.
+
+### Security and code-quality evidence
+
+The six `audit` commands return checks/findings, full summary counts, exact available source ranges and measured coverage. Native `routes`/`isolation` checks use explicit contracts in `audit.yaml` beside the active `.ignore`, or `--policy`. Route checks resolve configured exported guards, literal roles/permissions and middleware order; isolation checks direct Prisma filters/create-data against configured scope fields and trusted expressions. Missing contracts, dynamic/unsupported constructs and unproven identities remain unknown. Static passing checks do not prove runtime security.
+
+`security`, `dependencies`, `unused` and `duplicates` require separately installed engines. They stage Devkit-selected inputs and use controlled scanner settings without loading project config plugins or executing inspected code. Knip needs an explicit entry file per selected package; without entries, only ESLint local checks run and graph coverage is partial. Unused/duplicate findings require review before deletion/refactoring. No performance profiling is included.
+
+`--fail-on low|medium|high|critical|none` defaults to `high` for security commands and `none` for code quality. Native policy violations always exit `1`; `--strict` also gates incomplete coverage. Scanner/config/network failures exit `2`, never a clean empty scan. `--timeout` bounds external invocations. Semgrep uses bundled local rules with telemetry/version checks disabled; dependency checks query advisory services with package identities by default. `--offline` uses an existing OSV database, optionally selected with `--offline-db`; application source is not uploaded. Source-backed output omits raw secret values; metadata still needs appropriate handling.
 
 ### Installation or configuration problems
 

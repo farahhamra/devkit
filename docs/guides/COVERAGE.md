@@ -8,7 +8,7 @@ Coverage is automatic, not a new command. Every invocation of `search`, `find`, 
 2. **Coverage:** what inputs and stages were actually processed, and which known gaps remain?
 3. **Output truncation:** how much of the computed result and metadata is visible?
 
-Exit `0` is not proof of complete coverage. Exit `1` still means failed checks; it is not a new partial-analysis exit code. Exit `2` keeps the usual error object and adds measured coverage for recognized analysis invocations, including setup failures. Argument-parser errors before a command can be selected have no coverage. No strict mode or automatic repair is introduced.
+Exit `0` is not proof of complete coverage. Existing discovery commands retain their check/error exit semantics. Audit commands additionally offer `--strict`, which returns `1` for incomplete coverage; see the [audit guide](AUDIT.md). Exit `2` keeps the usual error object and adds measured coverage for recognized analysis invocations, including setup failures. Argument-parser errors before a command can be selected have no coverage. No automatic repair is performed.
 
 | Coverage status | Meaning |
 | --- | --- |

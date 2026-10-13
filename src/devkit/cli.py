@@ -18,6 +18,12 @@ from .project import DevkitError, Project
 from .schema import Schema
 
 EXAMPLES = {
+    "audit routes": ["devkit audit routes --app erp --policy devkit/audit.yaml --json"],
+    "audit isolation": ["devkit audit isolation backend/src --app erp --json"],
+    "audit security": ["devkit audit security backend/src --app erp --json"],
+    "audit dependencies": ["devkit audit dependencies --app erp --json"],
+    "audit unused": ["devkit audit unused backend/src --entry backend/src/app.ts --app erp --json"],
+    "audit duplicates": ["devkit audit duplicates frontend/src --app erp --min-lines 8 --json"],
     "doctor": ["devkit doctor --app erp --json", "devkit doctor --root /path/to/ElectroERP"],
     "config inspect": [
         "devkit config inspect --json",
@@ -79,6 +85,12 @@ EXAMPLES = {
 }
 
 OUTPUTS = {
+    "audit routes": "Configured authentication/role/permission middleware checks, ordered mount evidence, exact registration spans and explicit unknowns",
+    "audit isolation": "Prisma organization-scope contracts, exact call spans, missing constraints and unsupported/dynamic cases",
+    "audit security": "Bundled Semgrep Community security candidates with source spans; no source/secret values echoed",
+    "audit dependencies": "OSV-Scanner lockfile advisories, package versions/severity and available package spans; online advisory lookup by default",
+    "audit unused": "Knip graph candidates with explicit entrypoints and ESLint TypeScript-aware unused local binding candidates",
+    "audit duplicates": "jscpd token clone candidates with both occurrences and inclusive line ranges",
     "doctor": "Read-only installation, parser, configuration, storage and agent-template checks with remediation and summary counts",
     "config inspect": "Effective default/override settings, entry origins, ignore rules and storage locations; unknown values omitted",
     "config validate": "Read-only manifest/path/ignore/alias checks with actionable diagnostics and summary counts",
@@ -181,7 +193,9 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
             else "\nFormats: readable text (default) or --json. Scope: project root and --app; only Devkit .ignore applies. Analysis includes measured coverage (stages, counts, gaps and exclusions); complete processing is not runtime proof."
         )
         epilog += (
-            "\nExit codes: 0 successful inspection or checks without failures (warnings may remain), 1 doctor/config validate found failed checks, 2 invalid arguments/root or inspection could not complete."
+            "\nExit codes: 0 no finding gate triggered (inspect coverage/unknowns), 1 policy violation, finding at --fail-on severity or incomplete --strict audit, 2 invalid policy, missing engine or scanner failure. Static evidence is not runtime security proof; no automatic fixes."
+            if key.startswith("audit")
+            else "\nExit codes: 0 successful inspection or checks without failures (warnings may remain), 1 doctor/config validate found failed checks, 2 invalid arguments/root or inspection could not complete."
             if key == "doctor" or key.startswith("config")
             else "\nExit codes: 0 success/current, 1 --check detected drift/conflicts, 2 unsafe/conflicting apply or invalid input/storage. --dry-run and --check never write. --force requires explicit approval to replace local edits; backups are always kept."
             if key.startswith("agents")
@@ -207,6 +221,76 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
     csubs = configuration.add_subparsers(dest="action")
     add(csubs, "inspect", "Show merged settings, their origins, ignore rules and storage paths.", "config")
     add(csubs, "validate", "Check manifest structure and configured paths/ignore rules read-only.", "config")
+    audits = add(
+        subs, "audit", "Inspect security contracts and code-quality candidates without editing source."
+    )
+    asubs = audits.add_subparsers(dest="action")
+    for action, description in (
+        ("routes", "Check configured Express authentication, roles and permissions in middleware order."),
+        ("isolation", "Check configured organization scope on direct Prisma calls."),
+        ("security", "Scan JS/TS security candidates with optional Semgrep Community."),
+        ("dependencies", "Check JS lockfiles for known advisories with optional OSV-Scanner."),
+        ("unused", "Find unused-code candidates with optional Knip and TypeScript-aware ESLint."),
+        ("duplicates", "Find token clone candidates with optional jscpd."),
+    ):
+        audit_parser = add(asubs, action, description, "audit")
+        audit_parser.add_argument(
+            "path",
+            nargs="?",
+            default=".",
+            help="Project-relative file/directory; routes resolve context across the selected app",
+        )
+        audit_parser.add_argument(
+            "--fail-on",
+            choices=["low", "medium", "high", "critical", "none"],
+            default="none" if action in {"unused", "duplicates"} else "high",
+            help="Finding severity gate; policy violations always exit 1. Unknown checks appear in coverage",
+        )
+        audit_parser.add_argument(
+            "--strict",
+            action="store_true",
+            help="Also exit 1 when audit coverage is partial/not analyzed or checks are unknown",
+        )
+        if action in {"routes", "isolation", "unused"}:
+            audit_parser.add_argument(
+                "--policy", help="Project-relative audit YAML (default: audit.yaml beside Devkit .ignore)"
+            )
+        if action not in {"routes", "isolation"}:
+            audit_parser.add_argument(
+                "--timeout",
+                type=bounded_int(1, 600),
+                default=120,
+                help="Timeout per external engine in seconds (default: 120)",
+            )
+        if action == "dependencies":
+            audit_parser.add_argument(
+                "--offline",
+                action="store_true",
+                help="Use a pre-populated OSV local advisory database without network",
+            )
+            audit_parser.add_argument(
+                "--offline-db", help="OSV local database directory (requires --offline)"
+            )
+        if action == "unused":
+            audit_parser.add_argument(
+                "--entry",
+                action="append",
+                default=[],
+                help="Explicit project-relative source entry file, repeatable; overrides unused.entry",
+            )
+        if action == "duplicates":
+            audit_parser.add_argument(
+                "--min-lines",
+                type=bounded_int(1, 10000),
+                default=5,
+                help="Minimum clone line count (default: 5)",
+            )
+            audit_parser.add_argument(
+                "--min-tokens",
+                type=bounded_int(5, 100000),
+                default=50,
+                help="Minimum token count (default: 50)",
+            )
     search = add(subs, "search", "Search text contents; literal smart-case matching by default.")
     search.add_argument("query", help="Literal query, or a regular expression with --regex")
     search.add_argument("path", nargs="?", default=".", help="Directory/file relative to project root")
@@ -469,8 +553,12 @@ def catalog(registry: dict[str, Parser], topic: str = "") -> list[dict[str, Any]
                 if name.startswith("feedback")
                 else "Selected app and project-local .ignore; analysis reports measured coverage, not runtime completeness. Help reads no project files",
                 "exit_codes": {
-                    "0": "Success (including no matches)",
-                    "1": "Diagnostic checks failed (doctor/config validate)"
+                    "0": "No finding gate triggered; inspect coverage and unknown checks"
+                    if name.startswith("audit")
+                    else "Success (including no matches)",
+                    "1": "Policy violation, finding at the selected severity threshold, or incomplete --strict audit"
+                    if name.startswith("audit")
+                    else "Diagnostic checks failed (doctor/config validate)"
                     if name == "doctor" or name.startswith("config")
                     else "--check detected drift/conflicts"
                     if name.startswith("agents")
@@ -593,6 +681,10 @@ def execute(
     project: Project | FeedbackContext | AgentsContext | DiagnosticContext, args: argparse.Namespace
 ) -> tuple[Any, int]:
     command, action = args.command, getattr(args, "action", None)
+    if command == "audit":
+        from .audit import audit
+
+        return audit(project, args)
     if command in {"doctor", "config"}:
         diagnostics = Diagnostics(project)
         return (
@@ -827,7 +919,8 @@ def main(argv: list[str] | None = None) -> int:
             args.command == "help"
             or not args.command
             or (
-                args.command in {"module", "schema", "trace", "impact", "feedback", "agents", "config"}
+                args.command
+                in {"module", "schema", "trace", "impact", "feedback", "agents", "config", "audit"}
                 and not args.action
             )
         ):

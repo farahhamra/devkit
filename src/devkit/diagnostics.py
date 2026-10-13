@@ -557,6 +557,23 @@ class Diagnostics:
             supported_versions="0.50.x",
             executed=False,
         )
+        audit_path = os.pathsep.join(
+            filter(None, [os.environ.get("DEVKIT_AUDIT_BIN_DIRS"), str(scripts), os.environ.get("PATH")])
+        )
+        for engine in ("semgrep", "osv-scanner", "node", "knip", "eslint", "jscpd"):
+            located = shutil.which(engine, path=audit_path)
+            self.add(
+                "engine." + engine.replace("-", "_"),
+                "pass" if located else "warning",
+                "Optional audit executable located; command validates compatibility"
+                if located
+                else "Optional audit executable unavailable",
+                None
+                if located
+                else "See docs/guides/AUDIT.md for optional tool installation; discovery commands do not require these engines.",
+                path=located,
+                executed=False,
+            )
         loaded = {}
         for distribution, module in DEPENDENCIES.items():
             try:

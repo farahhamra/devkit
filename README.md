@@ -1,6 +1,6 @@
 # ElectroERP Devkit
 
-A Python CLI for Antigravity and developers working on ElectroERP. It searches source, explains module ownership, reads Prisma schemas, and traces static source dependencies. All analysis runs locally without a database connection.
+A Python CLI for Antigravity and developers working on ElectroERP. It searches source, explains module ownership, reads Prisma schemas, traces static source dependencies, and audits security contracts and code-quality candidates. Source analysis runs locally without a database connection; dependency advisory checks can query OSV online or use an offline database.
 
 ## Install
 
@@ -70,6 +70,12 @@ Analysis commands write the configuration directory, missing `.ignore`, and disp
 | `devkit symbols [path]` | JS/TS/JSX/TSX definitions; `--name`, repeatable `--kind`, `--exported-only` |
 | `devkit analyze <path>` | Single-file briefing with numbered source, exact evidence spans and lexical hierarchy; `--symbol`, opt-in `--with-context` |
 | `devkit query <pattern> [path]` | Structural code matches and captures through optional ast-grep; `--lang auto\|js\|jsx\|ts\|tsx`, `--timeout` |
+| `devkit audit routes [path]` | Configured authentication, role and permission middleware contracts; `--policy`, `--strict` |
+| `devkit audit isolation [path]` | Configured organization scope in direct Prisma operations; `--policy`, `--strict` |
+| `devkit audit security [path]` | Bundled Semgrep Community security candidates; `--fail-on`, `--timeout` |
+| `devkit audit dependencies [path]` | OSV-Scanner lockfile advisories; `--offline`, `--offline-db`, `--fail-on` |
+| `devkit audit unused [path]` | Knip + TypeScript-aware ESLint unused-code candidates; explicit `--entry` or policy entries |
+| `devkit audit duplicates [path]` | jscpd token clone candidates with both line ranges; `--min-lines`, `--min-tokens` |
 | `devkit module list` | Configured/discovered modules and available layers |
 | `devkit module inspect <module>` | Models, tables, enums, dependencies, consumers, categorized files and reasons |
 | `devkit module impact <module>` | Cross-module schema and import consumers, documentation and validation areas |
@@ -127,6 +133,21 @@ devkit query 'useState($INITIAL)' frontend/src --lang tsx --app erp --json
 
 Devkit selects eligible files under its own ignore/app policy, then queries temporary snapshots in batches by JS/JSX/TS/TSX grammar. Matches and captures retain the original relative path, inclusive line range and exact byte positions. All readable selected inputs are processed to produce full summary counts, even if the display is truncated. `--lang` narrows the selected extensions; default `auto` requires a pattern valid for each selected grammar. Query runs live; `--no-cache` bypasses the supplementary Devkit source summaries. See [query syntax, installation and output](docs/guides/QUERY.md).
 
+## Security and code quality
+
+`audit routes` and `audit isolation` use explicit contracts in `audit.yaml` beside the configured `.ignore`; [the example](examples/audit.yaml) needs adaptation to the project's real guards and trust boundaries. The other audit commands use separately installed Semgrep, OSV-Scanner, Knip/ESLint and jscpd engines. Devkit stages only selected inputs and supplies controlled scanner settings. It does not load application config plugins or perform fixes.
+
+```powershell
+devkit audit routes --app erp --json
+devkit audit isolation backend/src --app erp --json
+devkit audit security backend/src --app erp --json
+devkit audit dependencies --app erp --json
+devkit audit unused --app erp --entry backend/src/app.ts --entry frontend/src/main.tsx --json
+devkit audit duplicates frontend/src --app erp --json
+```
+
+Findings retain source locations and full summary counts. Unknown policy, incomplete engine scans and missing advisory data remain visible in coverage. `--fail-on` controls finding severity gates, while `--strict` also fails incomplete coverage. Static candidates do not prove runtime security or that code can safely be deleted. See [audit installation, policy and output](docs/guides/AUDIT.md). Performance profiling is not included.
+
 ## Diagnose installation and configuration
 
 ```powershell
@@ -151,7 +172,7 @@ devkit agents sync
 devkit agents sync --check
 ```
 
-Templates in [docs/agents/](docs/agents/README.md) ship with Devkit and sync offline to `.agents/rules/devkit-rules.md`, `.agents/skills/devkit/SKILL.md`, and only the marked Devkit section of `AGENTS.md`. General directives outside that block remain unchanged. Existing custom dedicated files/local edits require a reviewed `--force`; replacements are backed up under `.agents/.devkit-sync/backups/`. Ambiguous Devkit sections are not guessed, even with force. Dry-run/check create nothing; `--check` exits `1` when updates/conflicts need attention. See the guide for first-time migration, nested Windows installs, backups and recovery. Release notes live in [docs/patches/](docs/patches/RELEASE-0.8.0.md); command and feature guides live in [docs/guides/](docs/guides/).
+Templates in [docs/agents/](docs/agents/README.md) ship with Devkit and sync offline to `.agents/rules/devkit-rules.md`, `.agents/skills/devkit/SKILL.md`, and only the marked Devkit section of `AGENTS.md`. General directives outside that block remain unchanged. Existing custom dedicated files/local edits require a reviewed `--force`; replacements are backed up under `.agents/.devkit-sync/backups/`. Ambiguous Devkit sections are not guessed, even with force. Dry-run/check create nothing; `--check` exits `1` when updates/conflicts need attention. See the guide for first-time migration, nested Windows installs, backups and recovery. Release notes live in [docs/patches/](docs/patches/RELEASE-0.9.0.md); command and feature guides live in [docs/guides/](docs/guides/).
 
 ## Local feedback
 
@@ -211,6 +232,6 @@ Output truncation is separate: a full scan may have truncated display, while a s
 
 Default `--max-results 100` bounds each result collection independently. `--max-output-chars 32000` additionally bounds the whole analysis response (text plus diagnostics, or the complete valid JSON envelope). A tree also has a node budget. Per-list truncation reports collection paths, shown counts, and lower bounds; global truncation instead reports `reason: total_output_budget` and may omit collections or shorten long strings. Check summaries and exit status are preserved. Search stops scanning after finding one extra match. Narrow the scope or explicitly raise both limits to retrieve more; absence from truncated output is not evidence of absence from the project.
 
-Exit codes: **0** success (including no matches), **1** failed module/doctor/config-validation checks or drift/conflicts detected by `agents sync --check`, **2** invalid arguments/root, inspection that could not complete, unsafe/conflicting sync, or I/O failure. Invalid YAML is reported as a failed check by doctor/validation and exit `2` by config inspection/analysis. Warnings are separate from failures; an empty test/check selection does not validate an application. Devkit never claims runtime completeness from static evidence.
+Exit codes: **0** success (including no matches or incomplete coverage), **1** failed module/doctor/config-validation checks, audit policy/severity/strict gates, or drift/conflicts detected by `agents sync --check`, **2** invalid arguments/root, inspection or scanner execution that could not complete, unsafe/conflicting sync, or I/O failure. Invalid YAML is reported as a failed check by doctor/validation and exit `2` by config inspection/analysis. Warnings are separate from failures; an empty test/check selection does not validate an application. Devkit never claims runtime completeness from static evidence.
 
 See [agent sync and templates](docs/agents/README.md) for the Antigravity workflow.

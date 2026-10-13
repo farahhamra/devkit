@@ -1,0 +1,42 @@
+# Example only: replace paths/symbols/route contracts with verified ElectroERP definitions.
+# Save as audit.yaml beside the active Devkit .ignore, or pass --policy <relative-path>.
+version: 1
+entrypoints:
+  - path: backend/src/app.ts
+    router: app
+guards:
+  authentication:
+    - path: backend/src/middleware/auth.ts
+      symbol: authenticate
+  permissions:
+    - path: backend/src/middleware/permissions.ts
+      symbol: requirePermissions
+      argument: 0
+      mode: all
+  roles:
+    - path: backend/src/middleware/roles.ts
+      symbol: requireRoles
+      argument: 0
+      mode: any
+routes:
+  - app: erp
+    method: GET
+    route: /api/v2/core/products
+    authentication: required
+    permissions: [products.read]
+    permission_mode: all
+    roles: [admin, sales]
+    role_mode: any
+  - app: erp
+    method: GET
+    route: /health
+    authentication: public
+isolation:
+  models:
+    - app: erp
+      model: Product
+      field: organizationId
+      receivers: [prisma, tx]
+      trusted_values: [ctx.organizationId, req.user.organizationId]
+unused:
+  entry: [backend/src/app.ts, frontend/src/main.tsx]

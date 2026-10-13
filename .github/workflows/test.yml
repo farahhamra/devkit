@@ -22,3 +22,45 @@ jobs:
       - run: uv run --isolated --no-project --with . python tests/smoke_install.py
       - run: uv run --isolated --no-project --with ".[query]" python tests/smoke_install.py --query
       - run: uv run --no-sync devkit help --json
+  audit-engines:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: uv sync --locked --extra dev
+      - name: Install pinned optional scanners
+        shell: pwsh
+        run: |
+          $auditBin = Join-Path $env:RUNNER_TEMP 'devkit-audit-bin'
+          $auditNode = Join-Path $env:RUNNER_TEMP 'devkit-audit-node'
+          New-Item -ItemType Directory -Force $auditBin | Out-Null
+          $env:UV_TOOL_DIR = Join-Path $env:RUNNER_TEMP 'devkit-audit-python'
+          $env:UV_TOOL_BIN_DIR = $auditBin
+          uv tool install semgrep==1.180.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm install --prefix $auditNode --no-audit --no-fund knip@6.41.0 eslint@10.12.0 @typescript-eslint/parser@8.71.2 @typescript-eslint/eslint-plugin@8.71.2 jscpd@5.4.1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $asset = if ($IsWindows) { 'osv-scanner_windows_amd64.exe' } else { 'osv-scanner_linux_amd64' }
+          $release = 'https://github.com/google/osv-scanner/releases/download/v2.7.0'
+          $download = Join-Path $auditBin $asset
+          Invoke-WebRequest "$release/$asset" -OutFile $download
+          $checksumFile = Join-Path $auditBin 'osv-scanner_SHA256SUMS'
+          Invoke-WebRequest "$release/osv-scanner_SHA256SUMS" -OutFile $checksumFile
+          $checksums = Get-Content -Raw $checksumFile
+          $expected = (($checksums -split "`n" | Where-Object { ($_ -split '\s+')[-1] -eq $asset }) -split '\s+')[0]
+          if (!$expected -or (Get-FileHash $download -Algorithm SHA256).Hash.ToLower() -ne $expected.ToLower()) { throw 'OSV checksum verification failed' }
+          $destination = Join-Path $auditBin $(if ($IsWindows) { 'osv-scanner.exe' } else { 'osv-scanner' })
+          Move-Item $download $destination
+          if (!$IsWindows) { chmod +x $destination }
+          $nodeBin = Join-Path $auditNode 'node_modules/.bin'
+          Add-Content $env:GITHUB_ENV "DEVKIT_AUDIT_BIN_DIRS=$auditBin$([IO.Path]::PathSeparator)$nodeBin"
+          Add-Content $env:GITHUB_ENV 'DEVKIT_TEST_AUDIT_ENGINES=1'
+      - run: uv run --no-sync pytest tests/test_audit.py -q

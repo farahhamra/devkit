@@ -49,11 +49,19 @@ class Coverage:
             self.required.add("source")
         if args.command == "query":
             self.required.add("query")
+        if args.command == "audit":
+            self.required.add("audit")
+            if args.action in {"routes", "isolation"}:
+                self.required.add("source")
+            if args.action == "isolation":
+                self.required.add("schema")
         if args.command == "schema" or (args.command == "impact" and args.action in {"model", "field"}):
             self.required.add("schema")
         target = getattr(args, "path", ".")
         selected = project.resolve(target, False)
         if args.command == "analyze" and args.with_context:
+            selected = project.root
+        if args.command == "audit" and args.action == "routes":
             selected = project.root
         self.details["scope"] = {
             "app": project.app,
@@ -84,6 +92,13 @@ class Coverage:
                     "with_context",
                     "lang",
                     "timeout",
+                    "policy",
+                    "fail_on",
+                    "strict",
+                    "entry",
+                    "offline",
+                    "min_lines",
+                    "min_tokens",
                 )
                 if hasattr(args, k)
             },
@@ -129,7 +144,8 @@ class Coverage:
     def report(self, output_truncated=False):
         stages = {}
         query_stages = ("query",) if "query" in self.required or "query" in self.started else ()
-        for name in ("discovery", "text", "source", "schema", "dependencies", *query_stages):
+        audit_stages = ("audit",) if "audit" in self.required or "audit" in self.started else ()
+        for name in ("discovery", "text", "source", "schema", "dependencies", *query_stages, *audit_stages):
             stages[name] = (
                 "not_run"
                 if name not in self.started
@@ -143,6 +159,8 @@ class Coverage:
                 if name == "text" and not self.items["text_read"]
                 else "not_analyzed"
                 if name == "query" and not self.items["query_analyzed"]
+                else "not_analyzed"
+                if name == "audit" and not self.items["audit_analyzed"]
                 else "complete"
             )
         status = (
@@ -173,6 +191,7 @@ class Coverage:
                     "modules_checked",
                     "modules_unavailable",
                     *(("query_selected", "query_analyzed") if query_stages else ()),
+                    *(("audit_selected", "audit_analyzed") if audit_stages else ()),
                 )
             },
             "gaps": {k: len(v) for k, v in sorted(self.gaps.items())},
