@@ -29,8 +29,11 @@ def test_documentation_local_links_exist():
 
 
 @pytest.mark.parametrize("name", ["devkit-rules.md", "SKILL.md", "AGENTS.fragment.md"])
-def test_analyze_templates_describe_capabilities_without_tool_preference(name):
+def test_analysis_templates_describe_capabilities_without_tool_preference(name):
     content = (DOCS / "agents" / name).read_text(encoding="utf-8")
     assert "analyze <file>" in content
+    assert "query <pattern>" in content
     assert "--symbol" in content and "--with-context" in content
-    assert not re.search(r"\b(?:prefer|must use|always use)\b[^.\n]*\banalyze\b", content, re.IGNORECASE)
+    assert not re.search(
+        r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query)\b", content, re.IGNORECASE
+    )

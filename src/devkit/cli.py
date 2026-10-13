@@ -45,6 +45,11 @@ EXAMPLES = {
         "devkit analyze backend/src/core/features/products/product.service.ts --symbol listProducts --json",
         "devkit analyze backend/src/core/features/products/product.service.ts --with-context --app erp --json",
     ],
+    "query": [
+        "devkit query 'prisma.product.findMany($$$ARGS)' backend/src --app erp --json",
+        "devkit query 'router.$METHOD($PATH, $$$HANDLERS)' backend/src --lang ts --json",
+        "devkit query 'useState($INITIAL)' frontend/src --lang tsx --json",
+    ],
     "module list": ["devkit module list --app erp"],
     "module inspect": [
         "devkit module inspect products",
@@ -88,6 +93,7 @@ OUTPUTS = {
     "tree": "Nested path nodes, names, types and children",
     "symbols": "Symbol name, kind, location, signature and export status",
     "analyze": "Numbered source, exact source spans, lexical symbol hierarchy, imports/exports, call/reference/route/Prisma candidates and coverage; optional selected-app context",
+    "query": "Structural code matches and captured syntax nodes with relative paths, exact source spans, engine version, full scan counts and coverage",
     "module list": "Module names, aliases, applications, available layers and counts",
     "module inspect": "Owned models/tables, enums, dependencies, consumers, missing models and categorized files with reasons",
     "module impact": "Schema consumers, dependent modules, import consumers, coupled files and validation areas",
@@ -227,6 +233,20 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
         "--depth", type=bounded_int(0, 20), default=3, help="Levels below target (default: 3, max: 20)"
     )
     tree.add_argument("--dirs-only", action="store_true", help="Include directories only")
+    query = add(subs, "query", "Find structural code patterns using optional ast-grep 0.50.x.")
+    query.add_argument(
+        "pattern", help="Code pattern; $NAME captures one node, $$$NAME captures multiple nodes"
+    )
+    query.add_argument("path", nargs="?", default=".", help="Directory/file relative to project root")
+    query.add_argument(
+        "--lang",
+        choices=["auto", "js", "jsx", "ts", "tsx"],
+        default="auto",
+        help="Grammar/file scope (default: auto by extension)",
+    )
+    query.add_argument(
+        "--timeout", type=bounded_int(1, 300), default=30, help="Seconds per ast-grep batch (default: 30)"
+    )
     analyze = add(subs, "analyze", "Brief one JS/TS/JSX/TSX file with numbered source and lexical structure.")
     analyze.add_argument("path", help="Single source file relative to project root")
     analyze.add_argument(
@@ -595,6 +615,10 @@ def execute(
         from .analyze import analyze
 
         return analyze(project, args), 0
+    if command == "query":
+        from .query import query
+
+        return query(project, args), 0
     if command == "symbols":
         from .source import SourceIndex, match_name
 
@@ -691,7 +715,11 @@ def render(data: Any, indent: int = 0) -> list[str]:
             return [prefix + "(none)"]
         lines = []
         for row in data:
-            if isinstance(row, dict) and {"path", "line", "text"} <= row.keys():
+            if (
+                isinstance(row, dict)
+                and {"path", "line", "text"} <= row.keys()
+                and row.get("evidence") != "structural_match"
+            ):
                 lines.append(prefix + f"{row['path']}:{row['line']}:{row.get('column', 1)}  {row['text']}")
                 for context_key in ("before", "after"):
                     lines.extend(prefix + f"  {c['line']}: {c['text']}" for c in row.get(context_key, []))
@@ -781,6 +809,9 @@ def bound_output(result: dict[str, Any], maximum: int, output) -> None:
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     json_mode = "--json" in argv
+    # JSON escapes preserve source text on legacy Windows/ASCII output streams.
+    encoding = (getattr(sys.stdout, "encoding", None) or "utf-8").lower().replace("-", "")
+    json_ascii = encoding not in {"utf8", "utf8sig"}
     command = ""
     coverage = None
     try:
@@ -804,7 +835,9 @@ def main(argv: list[str] | None = None) -> int:
             data = catalog(registry, topic)
             if args.json:
                 print(
-                    json.dumps({"schema_version": "1.0", "command": "help", "data": data}, ensure_ascii=False)
+                    json.dumps(
+                        {"schema_version": "1.0", "command": "help", "data": data}, ensure_ascii=json_ascii
+                    )
                 )
             else:
                 print(registry[topic].format_help())
@@ -864,7 +897,7 @@ def main(argv: list[str] | None = None) -> int:
 
                 refresh_display_summary(result["data"], original_analysis)
             return (
-                json.dumps(result, ensure_ascii=False)
+                json.dumps(result, ensure_ascii=json_ascii)
                 if args.json
                 else "\n".join(
                     render_tree(result["data"]) if args.command == "tree" else render(result["data"])
@@ -894,7 +927,7 @@ def main(argv: list[str] | None = None) -> int:
             result["data"]["shown_nodes"] = count_nodes(result["data"])
             result["data"]["truncated"] = True
         if args.json:
-            print(json.dumps(result, ensure_ascii=False))
+            print(json.dumps(result, ensure_ascii=json_ascii))
         else:
             print(
                 "\n".join(render_tree(result["data"]) if args.command == "tree" else render(result["data"]))

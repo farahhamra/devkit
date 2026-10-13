@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -16,13 +17,21 @@ from devkit.agents import TARGETS
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--query", action="store_true", help="Exercise the installed optional ast-grep engine"
+    )
+    args = parser.parse_args()
     resources = files("devkit").joinpath("agent_templates")
     assert resources.is_dir(), "Installed packages must include templates, not depend on checkout fallback"
     assert {p.name for p in resources.iterdir()} == set(TARGETS.values())
     for template in resources.iterdir():
         content = template.read_text(encoding="utf-8")
         assert "analyze <file>" in content
-        assert not re.search(r"\b(?:prefer|must use|always use)\b[^.\n]*\banalyze\b", content, re.IGNORECASE)
+        assert "query <pattern>" in content
+        assert not re.search(
+            r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query)\b", content, re.IGNORECASE
+        )
     with tempfile.TemporaryDirectory(prefix="ElectroERP project with spaces ") as directory:
         root = Path(directory)
 
@@ -85,8 +94,18 @@ def main():
         for _ in range(2):
             symbols = invoke("symbols", "backend/src/example.ts")["coverage"]
             assert symbols["status"] == "partial" and symbols["counts"]["source_partial"] == 1
+        if args.query:
+            source.write_bytes("const café = '界'; save(\r\n'你好'\r\n);".encode())
+            data = invoke("query", "save($ARG)", "backend/src/example.ts")
+            row = data["data"]["matches"][0]
+            assert (row["line"], row["end_line"]) == (1, 3)
+            assert row["column"] == len("const café = '界'; ".encode()) + 1
+            assert row["captures"]["single"]["ARG"]["text"] == "'你好'"
+            assert data["coverage"]["stages"]["query"] == "complete"
+            assert invoke("query", "missing($ARG)", "backend/src/example.ts")["data"]["matches"] == []
     print(
-        "Installed-package smoke checks passed: diagnostics, analyze, coverage, bundled sync, backups and feedback."
+        "Installed-package smoke checks passed: diagnostics, analyze, coverage, bundled sync, backups, feedback"
+        + (" and structural query." if args.query else ".")
     )
 
 

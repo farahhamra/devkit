@@ -14,10 +14,11 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python }}
-      - run: uv sync --locked --extra dev
-      - run: uv run ruff check src tests
-      - run: uv run ruff format --check src tests
-      - run: uv run pytest -q
+      - run: uv sync --locked --extra dev --extra query
+      - run: uv run --no-sync ruff check src tests
+      - run: uv run --no-sync ruff format --check src tests
+      - run: uv run --no-sync pytest -q
       - run: uv build
       - run: uv run --isolated --no-project --with . python tests/smoke_install.py
-      - run: uv run devkit help --json
+      - run: uv run --isolated --no-project --with ".[query]" python tests/smoke_install.py --query
+      - run: uv run --no-sync devkit help --json

@@ -543,6 +543,20 @@ class Diagnostics:
             path_command=command,
             expected_scripts=str(scripts),
         )
+        from .query import INSTALL_HINT, engine_path
+
+        query_engine = engine_path()
+        self.add(
+            "engine.ast_grep",
+            "pass" if query_engine else "warning",
+            "Optional ast-grep executable located; execution/version compatibility is checked by query"
+            if query_engine
+            else "Optional structural-query engine is unavailable",
+            None if query_engine else INSTALL_HINT,
+            path=query_engine,
+            supported_versions="0.50.x",
+            executed=False,
+        )
         loaded = {}
         for distribution, module in DEPENDENCIES.items():
             try:

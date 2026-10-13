@@ -43,10 +43,12 @@ class Coverage:
     def configure(self, project, args):
         if args.command == "search":
             self.required.add("text")
-        if args.command in {"symbols", "analyze", "trace", "impact"} or (
+        if args.command in {"symbols", "analyze", "query", "trace", "impact"} or (
             args.command == "module" and args.action in {"impact", "check"}
         ):
             self.required.add("source")
+        if args.command == "query":
+            self.required.add("query")
         if args.command == "schema" or (args.command == "impact" and args.action in {"model", "field"}):
             self.required.add("schema")
         target = getattr(args, "path", ".")
@@ -80,6 +82,8 @@ class Coverage:
                     "full",
                     "symbol",
                     "with_context",
+                    "lang",
+                    "timeout",
                 )
                 if hasattr(args, k)
             },
@@ -124,7 +128,8 @@ class Coverage:
 
     def report(self, output_truncated=False):
         stages = {}
-        for name in ("discovery", "text", "source", "schema", "dependencies"):
+        query_stages = ("query",) if "query" in self.required or "query" in self.started else ()
+        for name in ("discovery", "text", "source", "schema", "dependencies", *query_stages):
             stages[name] = (
                 "not_run"
                 if name not in self.started
@@ -136,6 +141,8 @@ class Coverage:
                 if name == "schema" and not self.items["schema_analyzed"]
                 else "not_analyzed"
                 if name == "text" and not self.items["text_read"]
+                else "not_analyzed"
+                if name == "query" and not self.items["query_analyzed"]
                 else "complete"
             )
         status = (
@@ -165,6 +172,7 @@ class Coverage:
                     "schema_analyzed",
                     "modules_checked",
                     "modules_unavailable",
+                    *(("query_selected", "query_analyzed") if query_stages else ()),
                 )
             },
             "gaps": {k: len(v) for k, v in sorted(self.gaps.items())},

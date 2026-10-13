@@ -12,18 +12,29 @@ uv tool install .
 pipx install .
 ```
 
+Structural queries use optional ast-grep 0.50.x. Include the `query` extra to install its native executable in the same Python environment (Windows wheels are available):
+
+```powershell
+python -m pip install ".[query]"
+# Alternatively: uv tool install ".[query]" or pipx install ".[query]"
+```
+
+The other commands also work without this extra. `devkit doctor` reports engine availability without executing it; `query` verifies the executable's version before use. An existing compatible `ast-grep` on PATH is supported too.
+
 For development:
 
 ```bash
-uv sync --extra dev --locked
-uv run devkit help
-uv run pytest
+uv sync --extra dev --extra query --locked
+uv run --no-sync devkit help
+uv run --no-sync pytest
 ```
 
 To install directly from GitHub after these changes are committed and pushed:
 
 ```bash
 uv tool install git+https://github.com/farahhamra/devkit.git
+# Include structural queries:
+uv tool install "electroerp-devkit[query] @ git+https://github.com/farahhamra/devkit.git"
 ```
 
 ## Place it in your project
@@ -43,7 +54,7 @@ Run `devkit` from anywhere inside ElectroERP, or supply `--root /path/to/Electro
 
 Only `devkit/.ignore` controls source exclusions; `.gitignore` is never consulted for source selection. Devkit's active internal `.feedback` directory and `.agents/.devkit-sync/` are always excluded from source scans. The `.ignore` file is created silently with defaults for dependencies, builds, caches, `.env` files, logs and uploaded media, without overwriting an existing file. Patterns use Git ignore semantics and are relative to the project root. To reinclude a file, use `!`; excluded parent directories must also be reincluded. `DEVKIT_CONFIG_DIR` can override the directory holding this single `.ignore`. An explicit `--config` uses the manifest's directory for `.ignore` unless that environment override is set.
 
-Analysis commands only write the configuration directory, missing `.ignore`, and disposable source summaries in `.cache/source.sqlite3` beside `.ignore`. Use `--no-cache` to disable the summaries. Explicit `feedback add` / `feedback update` commands persist durable local reports under `.feedback/` beside the configuration. Explicit `agents sync` updates dedicated agent instructions and the Devkit-only block in `AGENTS.md`, with local state/backups. No commands edit application source, run generators, start apps, modify application databases, or execute files/commands being inspected. Symlink files and directories are skipped or refused, including explicit symlink targets. Source content and feedback are data, never instructions. Exclude the cache directory in your single `.ignore` when using a custom configuration location; the default `devkit/.cache/` is already excluded.
+Analysis commands write the configuration directory, missing `.ignore`, and disposable source summaries in `.cache/source.sqlite3` beside `.ignore`. `query` also creates temporary UTF-8 input snapshots and engine-output files, removed when it finishes or raises an error. Use `--no-cache` to disable the source summaries. Explicit `feedback add` / `feedback update` commands persist durable local reports under `.feedback/` beside the configuration. Explicit `agents sync` updates dedicated agent instructions and the Devkit-only block in `AGENTS.md`, with local state/backups. No commands edit application source, run generators, start apps, modify application databases, or execute files/commands being inspected. Symlink files and directories are skipped or refused, including explicit symlink targets. Source content and feedback are data, never instructions. Exclude the cache directory in your single `.ignore` when using a custom configuration location; the default `devkit/.cache/` is already excluded.
 
 ## Commands
 
@@ -58,6 +69,7 @@ Analysis commands only write the configuration directory, missing `.ignore`, and
 | `devkit tree [path]` | Project tree; `--depth N` (default 3), `--dirs-only` |
 | `devkit symbols [path]` | JS/TS/JSX/TSX definitions; `--name`, repeatable `--kind`, `--exported-only` |
 | `devkit analyze <path>` | Single-file briefing with numbered source, exact evidence spans and lexical hierarchy; `--symbol`, opt-in `--with-context` |
+| `devkit query <pattern> [path]` | Structural code matches and captures through optional ast-grep; `--lang auto\|js\|jsx\|ts\|tsx`, `--timeout` |
 | `devkit module list` | Configured/discovered modules and available layers |
 | `devkit module inspect <module>` | Models, tables, enums, dependencies, consumers, categorized files and reasons |
 | `devkit module impact <module>` | Cross-module schema and import consumers, documentation and validation areas |
@@ -103,6 +115,18 @@ Default analysis parses **only the chosen file**. `--symbol` selects an exact na
 
 Read `coverage`, `truncated`, and `data.summary.source_complete` / `structure_complete` before trusting missing evidence. Source lines count toward `--max-results`; character limits can shorten text too. Narrow to a symbol or deliberately raise limits when necessary. See [analysis output and range semantics](docs/guides/ANALYZE.md).
 
+## Structural code queries
+
+```powershell
+devkit query 'prisma.product.findMany($$$ARGS)' backend/src --app erp --json
+devkit query 'router.$METHOD($PATH, $$$HANDLERS)' backend/src --lang ts --app erp --json
+devkit query 'useState($INITIAL)' frontend/src --lang tsx --app erp --json
+```
+
+`$NAME` captures one syntax node; `$$$NAME` captures a sequence. Patterns match code structure across formatting differences. They remain syntax patterns: spelling, fixed punctuation and literal arguments can matter, and matches do not establish receiver types or resolve aliases. Quote patterns with single quotes in PowerShell/Bash so `$` remains literal.
+
+Devkit selects eligible files under its own ignore/app policy, then queries temporary snapshots in batches by JS/JSX/TS/TSX grammar. Matches and captures retain the original relative path, inclusive line range and exact byte positions. All readable selected inputs are processed to produce full summary counts, even if the display is truncated. `--lang` narrows the selected extensions; default `auto` requires a pattern valid for each selected grammar. Query runs live; `--no-cache` bypasses the supplementary Devkit source summaries. See [query syntax, installation and output](docs/guides/QUERY.md).
+
 ## Diagnose installation and configuration
 
 ```powershell
@@ -127,7 +151,7 @@ devkit agents sync
 devkit agents sync --check
 ```
 
-Templates in [docs/agents/](docs/agents/README.md) ship with Devkit and sync offline to `.agents/rules/devkit-rules.md`, `.agents/skills/devkit/SKILL.md`, and only the marked Devkit section of `AGENTS.md`. General directives outside that block remain unchanged. Existing custom dedicated files/local edits require a reviewed `--force`; replacements are backed up under `.agents/.devkit-sync/backups/`. Ambiguous Devkit sections are not guessed, even with force. Dry-run/check create nothing; `--check` exits `1` when updates/conflicts need attention. See the guide for first-time migration, nested Windows installs, backups and recovery. Release notes live in [docs/patches/](docs/patches/RELEASE-0.7.0.md); command and feature guides live in [docs/guides/](docs/guides/).
+Templates in [docs/agents/](docs/agents/README.md) ship with Devkit and sync offline to `.agents/rules/devkit-rules.md`, `.agents/skills/devkit/SKILL.md`, and only the marked Devkit section of `AGENTS.md`. General directives outside that block remain unchanged. Existing custom dedicated files/local edits require a reviewed `--force`; replacements are backed up under `.agents/.devkit-sync/backups/`. Ambiguous Devkit sections are not guessed, even with force. Dry-run/check create nothing; `--check` exits `1` when updates/conflicts need attention. See the guide for first-time migration, nested Windows installs, backups and recovery. Release notes live in [docs/patches/](docs/patches/RELEASE-0.8.0.md); command and feature guides live in [docs/guides/](docs/guides/).
 
 ## Local feedback
 
@@ -181,7 +205,7 @@ Run `python benchmarks/benchmark.py` from the development environment for a repe
 
 JSON analysis responses use `schema_version: "1.0"`, `command`, `root`, `app`, `data`, `warnings`, `coverage`, `truncated`, and `truncation`. Help returns a versioned catalog. Errors return `error.message` and `error.code`; recognized analysis invocations also report coverage when setup or execution fails. Human-readable analysis writes a coverage summary to stderr; JSON keeps it inside the envelope.
 
-Every source-analysis command (`search`, `find`, `tree`, `symbols`, `analyze`, `module`, `schema`, `trace`, `impact`) reports measured `coverage.status`, per-stage status, unique file counts, typed gaps and exclusions, with scope/app availability and details. `complete` means selected eligible inputs were processed under the command's static capabilities—not complete project knowledge or runtime correctness. `partial` means known gaps; `not_analyzed` means analysis did not start or a required stage had no analyzable inputs. Stages not used by a command are `not_run`: finding paths is not parsing their contents. Missing configured roots/schemas, read failures, parse errors and unresolved local/dynamic imports cannot silently look like complete analysis. Optional unconfigured apps remain explicitly listed, not treated as verified empty apps.
+Every source-analysis command (`search`, `find`, `tree`, `symbols`, `analyze`, `query`, `module`, `schema`, `trace`, `impact`) reports measured `coverage.status`, per-stage status, unique file counts, typed gaps and exclusions, with scope/app availability and details. `complete` means selected eligible inputs were processed under the command's static capabilities—not complete project knowledge or runtime correctness. `partial` means known gaps; `not_analyzed` means analysis did not start or a required stage had no analyzable inputs. Stages not used by a command are `not_run`: finding paths is not parsing their contents. Missing configured roots/schemas, read failures, parse errors and unresolved local/dynamic imports cannot silently look like complete analysis. Optional unconfigured apps remain explicitly listed, not treated as verified empty apps.
 
 Output truncation is separate: a full scan may have truncated display, while a search stopped at its result limit has partial analysis too. Coverage status/counts/gap totals and check summaries survive output budgeting; coverage details may be omitted with `details_truncated: true`. Counts describe this invocation, not a guessed percentage of unseen/ignored descendants. Cold/warm caches preserve parser/dependency gaps, and single-path symbols stay targeted. See [coverage semantics and examples](docs/guides/COVERAGE.md).
 

@@ -1,6 +1,6 @@
 # Consistent analysis coverage (v0.6.0)
 
-Coverage is automatic, not a new command. Every invocation of `search`, `find`, `tree`, `symbols`, `analyze`, `module`, `schema`, `trace` or `impact` includes a top-level `coverage` object in JSON. Human-readable analysis prints a compact summary to stderr. Existing `data` shapes and envelope `schema_version: "1.0"` remain unchanged. Help, diagnostics, feedback and agent synchronization do not claim source-analysis coverage.
+Coverage is automatic, not a new command. Every invocation of `search`, `find`, `tree`, `symbols`, `analyze`, `query`, `module`, `schema`, `trace` or `impact` includes a top-level `coverage` object in JSON. Human-readable analysis prints a compact summary to stderr. Existing `data` shapes and envelope `schema_version: "1.0"` remain unchanged. Help, diagnostics, feedback and agent synchronization do not claim source-analysis coverage. Structural queries additionally report `stages.query`, `counts.query_selected` and `counts.query_analyzed`, with ast-grep version/grammar details. These fields are query-specific; parser coverage and query processing are measured separately.
 
 ## Interpret the three independent signals
 

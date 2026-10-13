@@ -11,6 +11,7 @@ import json
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 
@@ -77,6 +78,17 @@ def run(root: Path) -> None:
         "modules": len(rows),
         "files": len(project.files()),
     }
+    from devkit.query import engine_path, query
+
+    if engine_path():
+        start = time.perf_counter()
+        data = query(
+            Project(root),
+            SimpleNamespace(
+                pattern="Math.max($$$ARGS)", path="backend/src", lang="ts", timeout=30, max_results=100
+            ),
+        )
+        report["structural_query"] = {"seconds": round(time.perf_counter() - start, 3), **data["summary"]}
     print(json.dumps(report, indent=2))
 
 

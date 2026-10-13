@@ -3,6 +3,21 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
+name = "ast-grep-cli"
+version = "0.50.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/40/72/3aebe818d0ea31ac724cc1735b06aaebb4e46dd5c2d560066e5503ac46aa/ast_grep_cli-0.50.0.tar.gz", hash = "sha256:acdde02c80c99a26c9bdef6d89e824be799454f08fcbaadb94bea255bb9ba3de", size = 289609, upload-time = "2026-10-09T14:27:24.745Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cf/fa/074d5724035c542afadf01fe8054d165004492888da1b298acff3970885a/ast_grep_cli-0.50.0-py3-none-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:cb135961f377d8e7a892e51a51cf5754ef4e09f93e0975b17cfdcf4343155451", size = 15911769, upload-time = "2026-10-09T14:27:09.224Z" },
+    { url = "https://files.pythonhosted.org/packages/21/05/5095de1abb430e12b4a047d42235823c05fefeb996fef109baf16df083eb/ast_grep_cli-0.50.0-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:dc0cbc067373b46c5ec535c69cad0bed049c973a0229df054d95fd579a6f8cd0", size = 7967727, upload-time = "2026-10-09T14:27:11.936Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/c0/9f43df1f2002f0e372179352b31a717082410d1ebc66da9ed4a1cd11dfdb/ast_grep_cli-0.50.0-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:6f5bad696264c61a4c8e29f8227299928a53f69290e3fb427255b15ac0f2a34e", size = 7811054, upload-time = "2026-10-09T14:27:13.577Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/3f/ee72263d6ee1eb28d55b0a0ce07bf5a8ce5e2b20d377e182809b071fbe6c/ast_grep_cli-0.50.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:d7f05aaadf39e8449419710b8b658af7bc0da1fcbcd9b30687013b89e36bd835", size = 8095888, upload-time = "2026-10-09T14:27:15.323Z" },
+    { url = "https://files.pythonhosted.org/packages/69/e2/02549e53f7ec7ba2718108c1a5414bd778ca00b3a47c4290ddbe8c8a5f8a/ast_grep_cli-0.50.0-py3-none-win32.whl", hash = "sha256:693a748cc7707a9080d789a6a9728722d421c6d870387b5c372133c3114c22b0", size = 15031473, upload-time = "2026-10-09T14:27:17.583Z" },
+    { url = "https://files.pythonhosted.org/packages/97/44/5f5597524ef13e00017eae91dd42ae3bee7e43fc00930d60d0f33a3914a3/ast_grep_cli-0.50.0-py3-none-win_amd64.whl", hash = "sha256:03af756f96c05f5e4de99a2a93f9d73937085ecd60edf09c4596ffeb1637c58d", size = 16105053, upload-time = "2026-10-09T14:27:20.206Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/14/dbe5b7cc80082413f96daf2f5aff04ee28ce4453ddd164a2557ef16f0f1a/ast_grep_cli-0.50.0-py3-none-win_arm64.whl", hash = "sha256:f7b91c7e12e3e9fc5483956f9ab2f4fdc7e2b5ae15bf52984724bc89799fab55", size = 15440171, upload-time = "2026-10-09T14:27:22.994Z" },
+]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -13,7 +28,7 @@ wheels = [
 
 [[package]]
 name = "electroerp-devkit"
-version = "0.7.0"
+version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "pathspec" },
@@ -25,12 +40,18 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "ast-grep-cli" },
     { name = "pytest" },
     { name = "ruff" },
+]
+query = [
+    { name = "ast-grep-cli" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "ast-grep-cli", marker = "extra == 'dev'", specifier = ">=0.50,<0.51" },
+    { name = "ast-grep-cli", marker = "extra == 'query'", specifier = ">=0.50,<0.51" },
     { name = "pathspec", specifier = ">=0.12.1,<1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3,<10" },
     { name = "pyyaml", specifier = ">=6.0.2,<7" },
@@ -39,7 +60,7 @@ requires-dist = [
     { name = "tree-sitter-javascript", specifier = ">=0.25,<0.26" },
     { name = "tree-sitter-typescript", specifier = ">=0.23.2,<0.24" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "query"]
 
 [[package]]
 name = "iniconfig"
