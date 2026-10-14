@@ -18,6 +18,10 @@ from .project import DevkitError, Project
 from .schema import Schema
 
 EXAMPLES = {
+    "performance database": [
+        "devkit performance database --input diagnostics/performance/capture.json --app erp --json",
+        "devkit performance database --input diagnostics/performance/capture.json --strict --json",
+    ],
     "audit routes": ["devkit audit routes --app erp --policy devkit/audit.yaml --json"],
     "audit isolation": ["devkit audit isolation backend/src --app erp --json"],
     "audit security": ["devkit audit security backend/src --app erp --json"],
@@ -85,6 +89,7 @@ EXAMPLES = {
 }
 
 OUTPUTS = {
+    "performance database": "Offline query timing/count rankings by measurement stream, MySQL plan estimates, Prisma/module mappings, index candidates, verified available source ranges and explicit coverage gaps",
     "audit routes": "Configured authentication/role/permission middleware checks, ordered mount evidence, exact registration spans and explicit unknowns",
     "audit isolation": "Prisma organization-scope contracts, exact call spans, missing constraints and unsupported/dynamic cases",
     "audit security": "Bundled Semgrep Community security candidates with source spans; no source/secret values echoed",
@@ -193,7 +198,9 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
             else "\nFormats: readable text (default) or --json. Scope: project root and --app; only Devkit .ignore applies. Analysis includes measured coverage (stages, counts, gaps and exclusions); complete processing is not runtime proof."
         )
         epilog += (
-            "\nExit codes: 0 no finding gate triggered (inspect coverage/unknowns), 1 policy violation, finding at --fail-on severity or incomplete --strict audit, 2 invalid policy, missing engine or scanner failure. Static evidence is not runtime security proof; no automatic fixes."
+            "\nExit codes: 0 report generated (findings/unknowns may remain), 1 incomplete --strict performance analysis, 2 invalid/unsafe capture or configuration/I/O failure. Offline evidence only: no SQL, instrumentation, profiling or load generation."
+            if key.startswith("performance")
+            else "\nExit codes: 0 no finding gate triggered (inspect coverage/unknowns), 1 policy violation, finding at --fail-on severity or incomplete --strict audit, 2 invalid policy, missing engine or scanner failure. Static evidence is not runtime security proof; no automatic fixes."
             if key.startswith("audit")
             else "\nExit codes: 0 successful inspection or checks without failures (warnings may remain), 1 doctor/config validate found failed checks, 2 invalid arguments/root or inspection could not complete."
             if key == "doctor" or key.startswith("config")
@@ -214,6 +221,19 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
 
     help_parser = add(subs, "help", "List commands or show detailed command help.")
     help_parser.add_argument("topic", nargs="*", help="Command path, such as module inspect")
+    performances = add(subs, "performance", "Analyze explicitly supplied performance evidence offline.")
+    psubs = performances.add_subparsers(dest="action")
+    database = add(
+        psubs, "database", "Analyze a versioned database capture without connecting to MySQL.", "performance"
+    )
+    database.add_argument(
+        "--input", required=True, help="Project-relative version 1.0 JSON capture; ignore rules still apply"
+    )
+    database.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 1 on incomplete evidence/coverage; findings alone are not failures",
+    )
     add(subs, "doctor", "Diagnose this installation and project without writing or scanning source.")
     configuration = add(
         subs, "config", "Inspect and validate effective configuration without initializing files."
@@ -555,9 +575,13 @@ def catalog(registry: dict[str, Parser], topic: str = "") -> list[dict[str, Any]
                 "exit_codes": {
                     "0": "No finding gate triggered; inspect coverage and unknown checks"
                     if name.startswith("audit")
+                    else "Report generated; inspect findings/unknowns and coverage"
+                    if name.startswith("performance")
                     else "Success (including no matches)",
                     "1": "Policy violation, finding at the selected severity threshold, or incomplete --strict audit"
                     if name.startswith("audit")
+                    else "Incomplete --strict performance analysis"
+                    if name.startswith("performance")
                     else "Diagnostic checks failed (doctor/config validate)"
                     if name == "doctor" or name.startswith("config")
                     else "--check detected drift/conflicts"
@@ -681,6 +705,10 @@ def execute(
     project: Project | FeedbackContext | AgentsContext | DiagnosticContext, args: argparse.Namespace
 ) -> tuple[Any, int]:
     command, action = args.command, getattr(args, "action", None)
+    if command == "performance":
+        from .performance import performance
+
+        return performance(project, args)
     if command == "audit":
         from .audit import audit
 
@@ -920,7 +948,17 @@ def main(argv: list[str] | None = None) -> int:
             or not args.command
             or (
                 args.command
-                in {"module", "schema", "trace", "impact", "feedback", "agents", "config", "audit"}
+                in {
+                    "module",
+                    "schema",
+                    "trace",
+                    "impact",
+                    "feedback",
+                    "agents",
+                    "config",
+                    "audit",
+                    "performance",
+                }
                 and not args.action
             )
         ):

@@ -1,0 +1,56 @@
+{
+  "capture_version": "1.0",
+  "metadata": {
+    "app": "erp",
+    "captured_at": "2026-10-14T10:00:00Z",
+    "source_revision": null,
+    "database": {"engine": "mysql", "version": "8.0.36"},
+    "runtime": {"node": "20.19.3", "prisma_client": "5.22.0"},
+    "workload": {"name": "synthetic-format-example-not-a-benchmark", "duration_ms": 1000, "concurrency": 1, "warmup_ms": 0}
+  },
+  "queries": [
+    {
+      "id": "products-read",
+      "kind": "sql",
+      "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "operation": "select",
+      "tables": ["products"],
+      "model": "Product",
+      "timing": {"source": "prisma_query_event", "count": 2, "total_ms": 20, "min_ms": 10, "max_ms": 10},
+      "samples": [
+        {"id": "sql-1", "duration_ms": 10, "phase": "request", "correlation": "explicit", "request_id": "request-1", "parent_id": "operation-1"},
+        {"id": "sql-2", "duration_ms": 10, "phase": "request", "correlation": "explicit", "request_id": "request-1", "parent_id": "operation-1"}
+      ],
+      "plan": {
+        "format": "mysql_explain_json",
+        "table_map": {"p": "products"},
+        "document": {
+          "query_block": {
+            "select_id": 1,
+            "table": {"table_name": "p", "access_type": "ALL", "rows_examined_per_scan": 10000, "rows_produced_per_join": 100, "filtered": 1}
+          }
+        }
+      }
+    },
+    {
+      "id": "product-operation",
+      "kind": "prisma",
+      "fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "operation": "findMany",
+      "tables": ["products"],
+      "model": "Product",
+      "timing": {"source": "prisma_operation", "count": 1, "total_ms": 22},
+      "samples": [
+        {"id": "operation-1", "duration_ms": 22, "phase": "request", "correlation": "explicit", "request_id": "request-1"}
+      ]
+    }
+  ],
+  "requests": [
+    {"id": "request-1", "duration_ms": 25, "outcome": "finished", "route_template": "/api/v2/core/products"}
+  ],
+  "indexes_complete": false,
+  "indexes": [
+    {"table": "products", "name": "PRIMARY", "provenance": "database", "unique": true, "primary": true, "constraint": true, "method": "btree", "visible": true, "parts": [{"column": "id", "order": "asc"}]},
+    {"table": "products", "name": "products_organization_id_idx", "provenance": "database", "unique": false, "primary": false, "constraint": null, "method": "btree", "visible": true, "parts": [{"column": "organization_id", "order": "asc"}]}
+  ]
+}

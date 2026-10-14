@@ -116,6 +116,7 @@ def parse_schema(source: str, path: str = "schema.prisma", app: str | None = Non
             "path": path,
             "app": app,
             "line": source.count("\n", 0, offset) + 1,
+            "end_line": source.count("\n", 0, ts[j][1]) + 1,
         }
         if kind == "enum":
             enum_tokens = tokens(body)
@@ -138,15 +139,26 @@ def parse_schema(source: str, path: str = "schema.prisma", app: str | None = Non
                 {"table": name, "fields": [], "indexes": [], "unique_constraints": [], "attributes": []}
             )
             for statement, position in statements(body):
-                clean = " ".join(t for t, _ in tokens(statement))
+                statement_tokens = tokens(statement)
+                clean = " ".join(t for t, _ in statement_tokens)
+                last_token, last_offset = statement_tokens[-1]
+                location = {
+                    "line": source.count("\n", 0, body_start + position) + 1,
+                    "end_line": source.count(
+                        "\n", 0, body_start + position + last_offset + len(last_token) - 1
+                    )
+                    + 1,
+                }
                 if clean.startswith("@@"):
                     decl["attributes"].append(clean)
                     if clean.startswith("@@map"):
                         decl["table"] = quoted(attribute(clean, "@@map")) or name
                     elif clean.startswith(("@@index", "@@fulltext")):
-                        decl["indexes"].append({"fields": names(clean), "definition": clean})
+                        decl["indexes"].append({"fields": names(clean), "definition": clean, **location})
                     elif clean.startswith(("@@unique", "@@id")):
-                        decl["unique_constraints"].append({"fields": names(clean), "definition": clean})
+                        decl["unique_constraints"].append(
+                            {"fields": names(clean), "definition": clean, **location}
+                        )
                     continue
                 field_tokens = tokens(statement)
                 if len(field_tokens) < 2:
@@ -165,7 +177,7 @@ def parse_schema(source: str, path: str = "schema.prisma", app: str | None = Non
                     "unique": any(t == "@unique" for t, _ in field_tokens),
                     "default": attribute(clean, "@default"),
                     "attributes": clean,
-                    "line": source.count("\n", 0, body_start + position) + 1,
+                    **location,
                     "relation_name": quoted(relation),
                     "foreign_keys": names(relation, "fields"),
                     "references": names(relation, "references"),

@@ -49,6 +49,8 @@ class Coverage:
             self.required.add("source")
         if args.command == "query":
             self.required.add("query")
+        if args.command == "performance":
+            self.required.update({"performance", "schema"})
         if args.command == "audit":
             self.required.add("audit")
             if args.action in {"routes", "isolation"}:
@@ -99,6 +101,7 @@ class Coverage:
                     "offline",
                     "min_lines",
                     "min_tokens",
+                    "input",
                 )
                 if hasattr(args, k)
             },
@@ -145,7 +148,19 @@ class Coverage:
         stages = {}
         query_stages = ("query",) if "query" in self.required or "query" in self.started else ()
         audit_stages = ("audit",) if "audit" in self.required or "audit" in self.started else ()
-        for name in ("discovery", "text", "source", "schema", "dependencies", *query_stages, *audit_stages):
+        performance_stages = (
+            ("performance",) if "performance" in self.required or "performance" in self.started else ()
+        )
+        for name in (
+            "discovery",
+            "text",
+            "source",
+            "schema",
+            "dependencies",
+            *query_stages,
+            *audit_stages,
+            *performance_stages,
+        ):
             stages[name] = (
                 "not_run"
                 if name not in self.started
@@ -161,6 +176,8 @@ class Coverage:
                 if name == "query" and not self.items["query_analyzed"]
                 else "not_analyzed"
                 if name == "audit" and not self.items["audit_analyzed"]
+                else "not_analyzed"
+                if name == "performance" and not self.items["performance_analyzed"]
                 else "complete"
             )
         status = (
@@ -192,6 +209,7 @@ class Coverage:
                     "modules_unavailable",
                     *(("query_selected", "query_analyzed") if query_stages else ()),
                     *(("audit_selected", "audit_analyzed") if audit_stages else ()),
+                    *(("performance_selected", "performance_analyzed") if performance_stages else ()),
                 )
             },
             "gaps": {k: len(v) for k, v in sorted(self.gaps.items())},

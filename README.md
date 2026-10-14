@@ -1,6 +1,6 @@
 # ElectroERP Devkit
 
-A Python CLI for Antigravity and developers working on ElectroERP. It searches source, explains module ownership, reads Prisma schemas, traces static source dependencies, and audits security contracts and code-quality candidates. Source analysis runs locally without a database connection; dependency advisory checks can query OSV online or use an offline database.
+A Python CLI for Antigravity and developers working on ElectroERP. It searches source, explains module ownership, reads Prisma schemas, traces static source dependencies, audits security/code-quality candidates, and analyzes exported database performance evidence. Source and performance analysis run locally without a database connection; dependency advisory checks can query OSV online or use an offline database.
 
 ## Install
 
@@ -76,6 +76,7 @@ Analysis commands write the configuration directory, missing `.ignore`, and disp
 | `devkit audit dependencies [path]` | OSV-Scanner lockfile advisories; `--offline`, `--offline-db`, `--fail-on` |
 | `devkit audit unused [path]` | Knip + TypeScript-aware ESLint unused-code candidates; explicit `--entry` or policy entries |
 | `devkit audit duplicates [path]` | jscpd token clone candidates with both line ranges; `--min-lines`, `--min-tokens` |
+| `devkit performance database --input <capture.json>` | Offline query timings, MySQL plan estimates, Prisma/module/index evidence and unknowns; `--strict` |
 | `devkit module list` | Configured/discovered modules and available layers |
 | `devkit module inspect <module>` | Models, tables, enums, dependencies, consumers, categorized files and reasons |
 | `devkit module impact <module>` | Cross-module schema and import consumers, documentation and validation areas |
@@ -147,6 +148,17 @@ devkit audit duplicates frontend/src --app erp --json
 ```
 
 Findings retain source locations and full summary counts. Unknown policy, incomplete engine scans and missing advisory data remain visible in coverage. `--fail-on` controls finding severity gates, while `--strict` also fails incomplete coverage. Static candidates do not prove runtime security or that code can safely be deleted. See [audit installation, policy and output](docs/guides/AUDIT.md). Performance profiling is not included.
+
+## Database performance evidence
+
+```powershell
+devkit performance database --input diagnostics/performance/capture.json --app erp --json
+devkit performance database --input diagnostics/performance/capture.json --app erp --strict --json
+```
+
+Analyze an explicitly supplied versioned capture offline: rank recorded query cost within separate SQL/Prisma timing streams, inspect MySQL 8.0/8.4 JSON-plan estimates, correlate physical tables with Prisma models/modules, and review index/repeated-query candidates. Reported request correlation and detached work remain distinct; query durations are not summed into request latency. Source ranges are emitted only when supplied locations match current file hashes; schema locations remain static context, not executing-call attribution.
+
+This command does not create measurements, connect to a database, execute EXPLAIN, change instrumentation or generate load. Captures need a separate opt-in collection workflow. Missing evidence stays unknown; `--strict` gates incomplete coverage, not universal latency thresholds. Functional/unique/constraint indexes are protected and no SQL fixes are generated. CPU, heap, caching, browser/.NET and comparisons remain deferred. See the [capture contract and integration guide](docs/guides/PERFORMANCE.md) and [synthetic example](examples/performance-capture.json).
 
 ## Diagnose installation and configuration
 

@@ -35,6 +35,7 @@ def main():
         assert "query <pattern>" in content
         assert "audit routes [path]" in content
         assert "audit duplicates [path]" in content
+        assert "performance database --input <capture.json>" in content
         assert not re.search(
             r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query)\b", content, re.IGNORECASE
         )
@@ -100,6 +101,39 @@ def main():
         for _ in range(2):
             symbols = invoke("symbols", "backend/src/example.ts")["coverage"]
             assert symbols["status"] == "partial" and symbols["counts"]["source_partial"] == 1
+        schema = root / "backend/prisma/schema.prisma"
+        schema.parent.mkdir(parents=True)
+        schema.write_text('model Product { id Int @id @@map("products") }', encoding="utf-8")
+        capture_path = root / "capture.json"
+        capture_path.write_text(
+            json.dumps(
+                {
+                    "capture_version": "1.0",
+                    "metadata": {
+                        "app": "erp",
+                        "captured_at": "2026-10-14T00:00:00Z",
+                        "database": {"engine": "mysql", "version": "8.0.36"},
+                        "workload": {"name": "installed-wheel-test", "duration_ms": 100},
+                    },
+                    "queries": [
+                        {
+                            "id": "q1",
+                            "kind": "sql",
+                            "fingerprint": "a" * 64,
+                            "operation": "select",
+                            "tables": ["products"],
+                            "timing": {"source": "mysql_digest", "count": 2, "total_ms": 10},
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        performance = invoke("performance", "database", "--input", "capture.json", "--app", "erp")
+        assert performance["data"]["queries"][0]["timing"]["mean_ms"] == 5
+        assert performance["data"]["queries"][0]["mappings"][0]["model"] == "Product"
+        assert performance["coverage"]["stages"]["performance"] == "partial"
+        invoke("performance", "database", "--input", "capture.json", "--app", "erp", "--strict", status=1)
         if args.query:
             source.write_bytes("const café = '界'; save(\r\n'你好'\r\n);".encode())
             data = invoke("query", "save($ARG)", "backend/src/example.ts")
@@ -110,7 +144,7 @@ def main():
             assert data["coverage"]["stages"]["query"] == "complete"
             assert invoke("query", "missing($ARG)", "backend/src/example.ts")["data"]["matches"] == []
     print(
-        "Installed-package smoke checks passed: diagnostics, analyze, coverage, bundled sync, backups, feedback"
+        "Installed-package smoke checks passed: diagnostics, analyze, coverage, bundled sync, backups, feedback, performance"
         + (" and structural query." if args.query else ".")
     )
 

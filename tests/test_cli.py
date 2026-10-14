@@ -20,7 +20,7 @@ def invoke(capsys, project, *args, status=0):
 def test_help_catalog_is_complete_and_side_effect_free(tmp_path, capsys, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = invoke(capsys, tmp_path, "help")
-    assert len(result["data"]) == 41
+    assert len(result["data"]) == 43
     commands = {r["command"] for r in result["data"]}
     assert "devkit impact field" in commands
     assert "devkit trace route" in commands

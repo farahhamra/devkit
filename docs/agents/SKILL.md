@@ -37,6 +37,7 @@ Use `devkit help <command...> --json` for the authoritative options of the insta
 | `devkit audit dependencies [path]` | OSV-Scanner lockfile advisories; online lookup or `--offline` / `--offline-db` |
 | `devkit audit unused [path]` | Knip graph and TypeScript-aware ESLint local binding candidates; explicit policy entries or repeatable `--entry` |
 | `devkit audit duplicates [path]` | jscpd token clone candidates with both occurrences; `--min-lines`, `--min-tokens` |
+| `devkit performance database --input <capture.json>` | Offline database timing/plan/index evidence, module mappings and explicit unknowns; `--strict` |
 | `devkit module list` | Configured and discovered module names |
 | `devkit module inspect <module>` | Owned/reference files, Prisma models/tables, enums and related modules; `--scope`, `--related` |
 | `devkit module impact <module>` | Cross-module schema/import consumers |
@@ -67,7 +68,20 @@ All analysis commands return a top-level `coverage` object in JSON (a summary on
 - `counts`, `gaps` and `exclusions` measure unique inputs/locations actually encountered, not hidden descendants or a whole-project percentage. Details identify app availability, selected scope/filters, parser capabilities and unavailable modules omitted by `module check all`.
 - `coverage.output_truncated` is separate from analysis status. A complete scan may have an incomplete display. Summary counts persist under limits; `details_truncated` means scope/issue details were shortened or omitted. Narrow scope or deliberately raise limits before relying on missing evidence.
 
-Cold/warm caches retain the same parser/dependency gaps. Exit `0` can still mean partial analysis. Audits additionally offer `--strict`, which exits `1` for incomplete coverage; other analysis commands retain their existing exit semantics. Use doctor/config validation to diagnose setup gaps and the actual application compiler/tests to establish correctness.
+Cold/warm caches retain the same parser/dependency gaps. Exit `0` can still mean partial analysis. Audits and database performance analysis additionally offer `--strict`, which exits `1` for incomplete coverage; other analysis commands retain their existing exit semantics. Use doctor/config validation to diagnose setup gaps and the actual application compiler/tests to establish correctness.
+
+### Database performance evidence
+
+```powershell
+devkit performance database --input diagnostics/performance/capture.json --app erp --json
+devkit performance database --input diagnostics/performance/capture.json --app erp --strict --json
+```
+
+The command reads a version `1.0` capture under the project root (ignore/storage rules still apply). SQL statement and Prisma operation timings are ranked within separate measurement streams. Request samples, parent links and detached work remain separate; overlapping query/operation durations are not summed into request latency. Repeated SQL samples require explicit request correlation and are candidates, not proof of N+1. Aggregate-only evidence cannot prove request-level behavior.
+
+MySQL 8.0/8.4 `EXPLAIN FORMAT=JSON` query-block documents supply optimizer estimates, not measured execution/lock/pool-wait metrics. Unsupported plans, unresolved aliases and missing evidence remain unknown. Tables map to current Prisma models/modules without fabricating executing-call locations. Source-backed locations require supplied inclusive line ranges and a matching raw-file SHA-256; this verifies content, not runtime attribution. Prisma/migration index declarations are distinct from exported database inventories. Functional/unique/constraint indexes are protected; no index creation/drop fixes are generated.
+
+`coverage.stages.performance`, query-group counts and full summaries accompany bounded output. `--strict` gates incomplete evidence, not universal performance budgets; exit `0` does not mean the app is fast. No database connections, SQL execution (including EXPLAIN), capture instrumentation, workload generation or automatic uploads occur. Captures need a separately authorized collection workflow, must omit raw SQL parameters/customer data, and should stay out of Git. CPU/heap/cache/browser/.NET Manager and comparison commands are deferred. The bundled guide is `docs/guides/PERFORMANCE.md` in the Devkit checkout.
 
 ### Security and code-quality evidence
 

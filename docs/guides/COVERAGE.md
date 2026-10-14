@@ -4,6 +4,8 @@ Coverage is automatic, not a new command. Every invocation of `search`, `find`, 
 
 ## Interpret the three independent signals
 
+`performance database` also returns coverage, with command-specific `stages.performance`, `performance_selected` and `performance_analyzed` query-group counts. Missing timing/correlation/plans/index inventories, unsupported plans and stale source ranges remain gaps. Its `--strict` gates incomplete evidence, not measured slowness. Source hash verification is not AST analysis, and offline capture processing is not runtime verification. See the [performance capture guide](PERFORMANCE.md).
+
 1. **Exit code / findings:** did the operation succeed, find failing module checks, or fail to execute?
 2. **Coverage:** what inputs and stages were actually processed, and which known gaps remain?
 3. **Output truncation:** how much of the computed result and metadata is visible?

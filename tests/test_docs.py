@@ -12,7 +12,7 @@ DOCS = ROOT / "docs"
 
 def test_docs_root_contains_only_directories():
     assert all(entry.is_dir() for entry in DOCS.iterdir())
-    assert {"ANALYZE.md", "COVERAGE.md", "DIAGNOSTICS.md", "FEEDBACK.md"} <= {
+    assert {"ANALYZE.md", "COVERAGE.md", "DIAGNOSTICS.md", "FEEDBACK.md", "PERFORMANCE.md"} <= {
         path.name for path in (DOCS / "guides").glob("*.md")
     }
 
@@ -33,9 +33,12 @@ def test_analysis_templates_describe_capabilities_without_tool_preference(name):
     content = (DOCS / "agents" / name).read_text(encoding="utf-8")
     assert "analyze <file>" in content
     assert "query <pattern>" in content
+    assert "performance database --input <capture.json>" in content
     for command in ("routes", "isolation", "security", "dependencies", "unused", "duplicates"):
         assert f"audit {command} [path]" in content
     assert "--symbol" in content and "--with-context" in content
     assert not re.search(
-        r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query|audit)\b", content, re.IGNORECASE
+        r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query|audit|performance)\b",
+        content,
+        re.IGNORECASE,
     )
