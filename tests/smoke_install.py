@@ -36,11 +36,13 @@ def main():
         assert "audit routes [path]" in content
         assert "audit duplicates [path]" in content
         assert "performance database --input <capture.json>" in content
+        assert "plan archive <conversation-id>" in content
         assert not re.search(
             r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query)\b", content, re.IGNORECASE
         )
     with tempfile.TemporaryDirectory(prefix="ElectroERP project with spaces ") as directory:
         root = Path(directory)
+        profile = root / "Synthetic user profile"
 
         def invoke(*args, status=0):
             result = subprocess.run(
@@ -49,7 +51,13 @@ def main():
                 capture_output=True,
                 text=True,
                 check=False,
-                env={**os.environ, "PYTHONPATH": "", "DEVKIT_CONFIG_DIR": str(root / "devkit")},
+                env={
+                    **os.environ,
+                    "PYTHONPATH": "",
+                    "DEVKIT_CONFIG_DIR": str(root / "devkit"),
+                    "HOME": str(profile),
+                    "USERPROFILE": str(profile),
+                },
             )
             assert result.returncode == status, result.stdout + result.stderr
             assert not result.stderr, result.stderr
@@ -80,6 +88,21 @@ def main():
             "report"
         ]
         assert invoke("feedback", "inspect", report["id"])["data"]["title"] == "Package smoke test"
+        conversation = profile / ".gemini/antigravity/brain/package-smoke"
+        conversation.mkdir(parents=True)
+        documents = {"implementation_plan.md": b"# Plan\r\nPackage check\r\n", "task.md": b"- [x] Verify\n"}
+        for name, content in documents.items():
+            (conversation / name).write_bytes(content)
+        assert invoke("plan", "archive", "package-smoke", "--dry-run")["data"]["status"] == "would_archive"
+        assert not (root / ".agents/implementation").exists()
+        saved = invoke("plan", "archive", "package-smoke")["data"]
+        assert saved["index"] == "001" and saved["status"] == "archived"
+        for row in saved["files"].values():
+            name = Path(row["source"]).name
+            assert (root / row["archive"]).read_bytes() == documents[name]
+            assert (conversation / name).read_bytes() == b""
+            assert row["verified"]
+        assert invoke("plan", "archive", "package-smoke")["data"]["status"] == "already_archived"
         source = root / "backend/src/example.ts"
         source.parent.mkdir(parents=True)
         source.write_text("export const example = 1;", encoding="utf-8")
@@ -144,7 +167,7 @@ def main():
             assert data["coverage"]["stages"]["query"] == "complete"
             assert invoke("query", "missing($ARG)", "backend/src/example.ts")["data"]["matches"] == []
     print(
-        "Installed-package smoke checks passed: diagnostics, analyze, coverage, bundled sync, backups, feedback, performance"
+        "Installed-package smoke checks passed: diagnostics, analyze, coverage, bundled sync, backups, feedback, performance, plan archives"
         + (" and structural query." if args.query else ".")
     )
 

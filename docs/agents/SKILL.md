@@ -11,17 +11,18 @@ Use the installed `devkit` Python command. It is not a Node script. If it is una
 
 ## Locate and scope the project
 
-Run from the ElectroERP root, or supply `--root <ElectroERP-root>`. All command paths are relative to that root. With a nested Devkit checkout, supply its actual manifest using `--config .agents/devkit/electroerp.yaml` when needed. `DEVKIT_CONFIG_DIR` overrides the directory holding the single `.ignore` and feedback/cache storage; it does not relocate agent-sync targets. Do not assume nested Git boundaries select the intended project.
+Run from the ElectroERP root, or supply `--root <ElectroERP-root>`. Analysis paths are relative to that root; plan archiving reads the current user's external Antigravity brain. With a nested Devkit checkout, supply its actual manifest using `--config .agents/devkit/electroerp.yaml` when needed. `DEVKIT_CONFIG_DIR` overrides the directory holding the single `.ignore` and feedback/cache storage; it does not relocate agent-sync or plan-archive targets. Do not assume nested Git boundaries select the intended project.
 
-Use `--app erp`, `hub` or `manager` for app-specific analysis; `all` is for cross-app scope. Roots/schemas come from the live manifest. Hub/Manager may be unconfigured; absent roots do not establish coverage. Help, feedback and agent sync do not require source indexing or valid YAML. Sync is always project-wide, independent of app/configuration scope.
+Use `--app erp`, `hub` or `manager` for app-specific analysis; `all` is for cross-app scope. Roots/schemas come from the live manifest. Hub/Manager may be unconfigured; absent roots do not establish coverage. Help, feedback, agent sync and plan archiving do not require source indexing or valid YAML. Sync and plan archiving are project-wide, independent of app/configuration scope.
 
 ## Command reference
 
-Use `devkit help <command...> --json` for the authoritative options of the installed version. Common flags are `--root`, `--config`, `--app`, `--json`, `--max-results`, `--max-output-chars` and `--no-cache`; app/config/cache selection does not affect agent sync.
+Use `devkit help <command...> --json` for the authoritative options of the installed version. Common flags are `--root`, `--config`, `--app`, `--json`, `--max-results`, `--max-output-chars` and `--no-cache`; app/config/cache selection does not affect agent sync or plan archiving.
 
 | Command | Purpose / useful options |
 | --- | --- |
 | `devkit help [command...]` | Help and machine-readable command catalog |
+| `devkit plan archive <conversation-id>` | Local numbered plan/task copies, verification and clearing original contents; `--dry-run`, `--root`, `--json` |
 | `devkit doctor` | Read-only runtime/parser/configuration/storage/agent-template diagnostics; `--app` scopes configured-path checks |
 | `devkit config inspect` | Effective settings and origins, root/manifest/ignore/storage selection; no source scan or initialization |
 | `devkit config validate` | Read-only global manifest structure plus selected-app path/ignore/alias checks; no Prisma syntax validation |
@@ -69,6 +70,17 @@ All analysis commands return a top-level `coverage` object in JSON (a summary on
 - `coverage.output_truncated` is separate from analysis status. A complete scan may have an incomplete display. Summary counts persist under limits; `details_truncated` means scope/issue details were shortened or omitted. Narrow scope or deliberately raise limits before relying on missing evidence.
 
 Cold/warm caches retain the same parser/dependency gaps. Exit `0` can still mean partial analysis. Audits and database performance analysis additionally offer `--strict`, which exits `1` for incomplete coverage; other analysis commands retain their existing exit semantics. Use doctor/config validation to diagnose setup gaps and the actual application compiler/tests to establish correctness.
+
+### Antigravity plan archiving
+
+```powershell
+devkit plan archive <conversation-id> --dry-run --root "C:\Projects\ElectroERP"
+devkit plan archive <conversation-id> --root "C:\Projects\ElectroERP" --json
+```
+
+The current user's `.gemini/antigravity/brain/<conversation-id>/implementation_plan.md` and `task.md` are saved byte-for-byte to `.agents/implementation/trash/plans/<index>_implementation_plan.md` and `tasks/<index>_task.md`. Both require nonempty UTF-8 content for a new archive. The shared index starts at `001` or advances beyond both folders and retained operation records. Both saved copies are verified before the original files are cleared in place. The operation is for completed work after document writes stop; it does not reset Antigravity's conversation or prevent later IDE writes.
+
+Archives and metadata remain local with a `.gitignore`; existing tracked files are not untracked. `--dry-run` creates nothing. App/config/cache flags do not select archive paths, and no source indexing or valid YAML is required. Recovery records permit interrupted copies/clearing to resume only when content still matches. Empty-source completed repeats return `already_archived`; a new pair in the same conversation gets a new index. Exit `2` includes incomplete clearing, so inspect `data.error`, per-file `verified` / `source_status` and the record path. Changed content and damaged archives stop recovery. The guide is `docs/guides/PLAN.md` in the Devkit checkout.
 
 ### Database performance evidence
 

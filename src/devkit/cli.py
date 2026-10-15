@@ -14,10 +14,15 @@ from .agents import AgentsContext, AgentSync
 from .coverage import Coverage, coverage_line
 from .diagnostics import DiagnosticContext, Diagnostics
 from .feedback import EVIDENCE, SEVERITIES, STATUSES, TYPES, FeedbackContext, FeedbackStore
+from .plan import PlanArchive, PlanContext
 from .project import DevkitError, Project
 from .schema import Schema
 
 EXAMPLES = {
+    "plan archive": [
+        "devkit plan archive <conversation-id> --dry-run",
+        "devkit plan archive <conversation-id> --root /path/to/ElectroERP --json",
+    ],
     "performance database": [
         "devkit performance database --input diagnostics/performance/capture.json --app erp --json",
         "devkit performance database --input diagnostics/performance/capture.json --strict --json",
@@ -89,6 +94,7 @@ EXAMPLES = {
 }
 
 OUTPUTS = {
+    "plan archive": "Shared archive index, plan/task source and destination paths, verification and source-clearing status; no document contents",
     "performance database": "Offline query timing/count rankings by measurement stream, MySQL plan estimates, Prisma/module mappings, index candidates, verified available source ranges and explicit coverage gaps",
     "audit routes": "Configured authentication/role/permission middleware checks, ordered mount evidence, exact registration spans and explicit unknowns",
     "audit isolation": "Prisma organization-scope contracts, exact call spans, missing constraints and unsupported/dynamic cases",
@@ -193,6 +199,8 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
             if key == "doctor" or key.startswith("config")
             else "\nFormats: readable text or --json. Scope: fixed agent files under --root, independent of --config/--app/--no-cache. Templates are bundled; no network access or source indexing."
             if key.startswith("agents")
+            else "\nFormats: readable text or --json. Scope: current user's Antigravity brain and project-local .agents/implementation/trash under --root. --app/--config/--no-cache do not select paths; no source parsing or YAML required. Apply archives both documents and clears their contents; --dry-run writes nothing."
+            if key.startswith("plan")
             else "\nFormats: readable text or --json. Scope: local project feedback and --app. YAML/source are not inspected; --no-cache does not disable durable feedback storage."
             if key.startswith("feedback")
             else "\nFormats: readable text (default) or --json. Scope: project root and --app; only Devkit .ignore applies. Analysis includes measured coverage (stages, counts, gaps and exclusions); complete processing is not runtime proof."
@@ -206,6 +214,8 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
             if key == "doctor" or key.startswith("config")
             else "\nExit codes: 0 success/current, 1 --check detected drift/conflicts, 2 unsafe/conflicting apply or invalid input/storage. --dry-run and --check never write. --force requires explicit approval to replace local edits; backups are always kept."
             if key.startswith("agents")
+            else "\nExit codes: 0 archived/already archived or valid preview, 2 invalid input, unsafe path, copy/verification failure or incomplete clearing. Inspect per-file status and recovery record on failure."
+            if key.startswith("plan")
             else "\nExit codes: 0 success (including empty matches), 1 failed module checks, 2 invalid input/configuration or I/O failure."
         )
         parser = subparsers.add_parser(
@@ -511,6 +521,20 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
     for name, choices in (("status", STATUSES), ("severity", SEVERITIES), ("evidence", EVIDENCE)):
         update.add_argument("--" + name, choices=choices, help="New " + name)
     update.add_argument("--note", help="Explanation or verification evidence; required for resolved status")
+    plans = add(subs, "plan", "Archive Antigravity implementation plans and tasks locally.")
+    plan_subs = plans.add_subparsers(dest="action")
+    archive = add(
+        plan_subs,
+        "archive",
+        "Save numbered plan/task copies, verify both, then clear their original contents.",
+        "plan",
+    )
+    archive.add_argument("conversation_id", help="Antigravity brain conversation folder ID, not a path")
+    archive.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview paths, validation and index without writing or clearing files",
+    )
     agents = add(subs, "agents", "Synchronize bundled Devkit guidance for coding agents.")
     asubs = agents.add_subparsers(dest="action")
     sync = add(
@@ -569,6 +593,8 @@ def catalog(registry: dict[str, Parser], topic: str = "") -> list[dict[str, Any]
                 if name == "doctor" or name.startswith("config")
                 else "Project-wide fixed agent files under --root; ignores app/config/cache selection"
                 if name.startswith("agents")
+                else "Current user's Antigravity brain; local numbered archives under --root/.agents/implementation/trash; apply clears both originals"
+                if name.startswith("plan")
                 else "Local feedback only; YAML/source are not inspected"
                 if name.startswith("feedback")
                 else "Selected app and project-local .ignore; analysis reports measured coverage, not runtime completeness. Help reads no project files",
@@ -577,6 +603,8 @@ def catalog(registry: dict[str, Parser], topic: str = "") -> list[dict[str, Any]
                     if name.startswith("audit")
                     else "Report generated; inspect findings/unknowns and coverage"
                     if name.startswith("performance")
+                    else "Archived/already archived or valid preview"
+                    if name.startswith("plan")
                     else "Success (including no matches)",
                     "1": "Policy violation, finding at the selected severity threshold, or incomplete --strict audit"
                     if name.startswith("audit")
@@ -586,9 +614,13 @@ def catalog(registry: dict[str, Parser], topic: str = "") -> list[dict[str, Any]
                     if name == "doctor" or name.startswith("config")
                     else "--check detected drift/conflicts"
                     if name.startswith("agents")
+                    else "Unused"
+                    if name.startswith("plan")
                     else "Module check failures",
                     "2": "Unsafe/conflicting sync or invalid input/storage"
                     if name.startswith("agents")
+                    else "Invalid/unsafe input, copy/verification failure or incomplete clearing; inspect per-file status"
+                    if name.startswith("plan")
                     else "Invalid input, configuration or I/O failure",
                 },
             }
@@ -720,6 +752,8 @@ def execute(
         )
     if command == "agents":
         return AgentSync(project).run(args)
+    if command == "plan":
+        return PlanArchive(project, args.conversation_id).run(dry_run=args.dry_run)
     if command == "feedback":
         store = FeedbackStore(project)
         if action == "inspect":
@@ -958,6 +992,7 @@ def main(argv: list[str] | None = None) -> int:
                     "config",
                     "audit",
                     "performance",
+                    "plan",
                 }
                 and not args.action
             )
@@ -979,6 +1014,7 @@ def main(argv: list[str] | None = None) -> int:
         context = {
             "feedback": FeedbackContext,
             "agents": AgentsContext,
+            "plan": PlanContext,
             "doctor": DiagnosticContext,
             "config": DiagnosticContext,
         }.get(args.command, Project)

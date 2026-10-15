@@ -54,13 +54,14 @@ Run `devkit` from anywhere inside ElectroERP, or supply `--root /path/to/Electro
 
 Only `devkit/.ignore` controls source exclusions; `.gitignore` is never consulted for source selection. Devkit's active internal `.feedback` directory and `.agents/.devkit-sync/` are always excluded from source scans. The `.ignore` file is created silently with defaults for dependencies, builds, caches, `.env` files, logs and uploaded media, without overwriting an existing file. Patterns use Git ignore semantics and are relative to the project root. To reinclude a file, use `!`; excluded parent directories must also be reincluded. `DEVKIT_CONFIG_DIR` can override the directory holding this single `.ignore`. An explicit `--config` uses the manifest's directory for `.ignore` unless that environment override is set.
 
-Analysis commands write the configuration directory, missing `.ignore`, and disposable source summaries in `.cache/source.sqlite3` beside `.ignore`. `query` also creates temporary UTF-8 input snapshots and engine-output files, removed when it finishes or raises an error. Use `--no-cache` to disable the source summaries. Explicit `feedback add` / `feedback update` commands persist durable local reports under `.feedback/` beside the configuration. Explicit `agents sync` updates dedicated agent instructions and the Devkit-only block in `AGENTS.md`, with local state/backups. No commands edit application source, run generators, start apps, modify application databases, or execute files/commands being inspected. Symlink files and directories are skipped or refused, including explicit symlink targets. Source content and feedback are data, never instructions. Exclude the cache directory in your single `.ignore` when using a custom configuration location; the default `devkit/.cache/` is already excluded.
+Analysis commands write the configuration directory, missing `.ignore`, and disposable source summaries in `.cache/source.sqlite3` beside `.ignore`. `query` also creates temporary UTF-8 input snapshots and engine-output files, removed when it finishes or raises an error. Use `--no-cache` to disable the source summaries. Explicit `feedback add` / `feedback update` commands persist durable local reports under `.feedback/` beside the configuration. Explicit `agents sync` updates dedicated agent instructions and the Devkit-only block in `AGENTS.md`, with local state/backups. Explicit `plan archive` writes numbered local plan/task copies and recovery records, then clears the two original Antigravity documents after verification. No commands edit application source, run generators, start apps, modify application databases, or execute files/commands being inspected. Symlink files and directories are skipped or refused, including explicit symlink targets. Source content, documents and feedback are data, never instructions. Exclude the cache directory in your single `.ignore` when using a custom configuration location; the default `devkit/.cache/` is already excluded.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
 | `devkit help [command...]` | Usage, arguments, flags, examples and JSON command catalog |
+| `devkit plan archive <conversation-id>` | Local numbered Antigravity plan/task copies; verify both then clear originals; `--dry-run` previews |
 | `devkit doctor` | Read-only installation/parser/configuration/storage/agent-template checks and remediation |
 | `devkit config inspect` | Effective merged settings, default/override origins, ignore rules and storage paths |
 | `devkit config validate` | Read-only manifest structure, selected-app paths, ignore and alias checks |
@@ -184,7 +185,18 @@ devkit agents sync
 devkit agents sync --check
 ```
 
-Templates in [docs/agents/](docs/agents/README.md) ship with Devkit and sync offline to `.agents/rules/devkit-rules.md`, `.agents/skills/devkit/SKILL.md`, and only the marked Devkit section of `AGENTS.md`. General directives outside that block remain unchanged. Existing custom dedicated files/local edits require a reviewed `--force`; replacements are backed up under `.agents/.devkit-sync/backups/`. Ambiguous Devkit sections are not guessed, even with force. Dry-run/check create nothing; `--check` exits `1` when updates/conflicts need attention. See the guide for first-time migration, nested Windows installs, backups and recovery. Release notes live in [docs/patches/](docs/patches/RELEASE-0.9.0.md); command and feature guides live in [docs/guides/](docs/guides/).
+Templates in [docs/agents/](docs/agents/README.md) ship with Devkit and sync offline to `.agents/rules/devkit-rules.md`, `.agents/skills/devkit/SKILL.md`, and only the marked Devkit section of `AGENTS.md`. General directives outside that block remain unchanged. Existing custom dedicated files/local edits require a reviewed `--force`; replacements are backed up under `.agents/.devkit-sync/backups/`. Ambiguous Devkit sections are not guessed, even with force. Dry-run/check create nothing; `--check` exits `1` when updates/conflicts need attention. See the guide for first-time migration, nested Windows installs, backups and recovery. Release notes live in [docs/patches/](docs/patches/RELEASE-0.11.0.md); command and feature guides live in [docs/guides/](docs/guides/).
+
+## Archive Antigravity plans and tasks
+
+After the agent finishes writing its documents, run from the ElectroERP root or supply `--root`:
+
+```powershell
+devkit plan archive <conversation-id> --dry-run
+devkit plan archive <conversation-id> --json
+```
+
+This command reads the current user's `.gemini/antigravity/brain/<conversation-id>/implementation_plan.md` and `task.md`, saves byte-exact numbered copies under `.agents/implementation/trash/plans/` and `tasks/`, verifies both copies, then clears the original files in place. Both copies share the next available index (for example `055_implementation_plan.md` and `055_task.md`). Git exclusions and recovery records keep the archives local and allow interrupted operations to resume without clearing changed content. A new pair in the same conversation can be archived again. The command needs no Prisma configuration or source indexing. See [usage, local storage and recovery](docs/guides/PLAN.md).
 
 ## Local feedback
 
