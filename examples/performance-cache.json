@@ -1,0 +1,25 @@
+{
+  "capture_version": "2.0",
+  "kind": "cache",
+  "metadata": {
+    "app": "erp",
+    "captured_at": "2026-10-15T10:00:00Z",
+    "runtime": {"engine": "node", "version": "22.14.0"},
+    "workload": {"name": "synthetic-example", "duration_ms": 40, "concurrency": 1, "warmup_ms": 0, "operations": 4},
+    "environment": "synthetic-fixture",
+    "process_scope": "backend-main",
+    "collector": "node-perf-example-v1"
+  },
+  "caches": [{
+    "id": "products-cache",
+    "backend": "memory",
+    "scope": "process",
+    "limits": {"max_entries": 15, "max_bytes": 150, "ttl_ms": null},
+    "samples": [
+      {"at_ms": 0, "epoch": "run-1", "hits": 0, "misses": 0, "sets": 0, "evictions": 0, "expirations": 0, "errors": 0, "entries": 0, "bytes": 0},
+      {"at_ms": 20, "epoch": "run-1", "hits": 60, "misses": 20, "sets": 10, "evictions": 0, "expirations": 0, "errors": 0, "entries": 10, "bytes": 100},
+      {"at_ms": 40, "epoch": "run-1", "hits": 90, "misses": 30, "sets": 20, "evictions": 1, "expirations": 1, "errors": 0, "entries": 20, "bytes": 200}
+    ],
+    "latency": {"scope": "lookup", "count": 120, "total_ms": 240, "min_ms": 1, "max_ms": 5, "p50_ms": 2, "p95_ms": 4, "p99_ms": 5}
+  }]
+}

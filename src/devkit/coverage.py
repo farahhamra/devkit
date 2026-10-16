@@ -50,7 +50,9 @@ class Coverage:
         if args.command == "query":
             self.required.add("query")
         if args.command == "performance":
-            self.required.update({"performance", "schema"})
+            self.required.add("performance")
+            if args.action == "database":
+                self.required.add("schema")
         if args.command == "audit":
             self.required.add("audit")
             if args.action in {"routes", "isolation"}:
@@ -102,6 +104,10 @@ class Coverage:
                     "min_lines",
                     "min_tokens",
                     "input",
+                    "before",
+                    "after",
+                    "regression_percent",
+                    "fail_on_regression",
                 )
                 if hasattr(args, k)
             },

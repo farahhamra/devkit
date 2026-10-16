@@ -12,9 +12,15 @@ DOCS = ROOT / "docs"
 
 def test_docs_root_contains_only_directories():
     assert all(entry.is_dir() for entry in DOCS.iterdir())
-    assert {"ANALYZE.md", "COVERAGE.md", "DIAGNOSTICS.md", "FEEDBACK.md", "PERFORMANCE.md", "PLAN.md"} <= {
-        path.name for path in (DOCS / "guides").glob("*.md")
-    }
+    assert {
+        "ANALYZE.md",
+        "COVERAGE.md",
+        "DIAGNOSTICS.md",
+        "FEEDBACK.md",
+        "PERFORMANCE.md",
+        "PERFORMANCE-RUNTIME.md",
+        "PLAN.md",
+    } <= {path.name for path in (DOCS / "guides").glob("*.md")}
 
 
 def test_documentation_local_links_exist():
@@ -34,6 +40,10 @@ def test_analysis_templates_describe_capabilities_without_tool_preference(name):
     assert "analyze <file>" in content
     assert "query <pattern>" in content
     assert "performance database --input <capture.json>" in content
+    for command in ("runtime", "memory", "cache"):
+        assert f"performance {command} --input <capture" in content
+    assert "performance compare --before <capture> --after <capture>" in content
+    assert "--fail-on-regression" in content
     assert "plan archive <conversation-id>" in content
     for command in ("routes", "isolation", "security", "dependencies", "unused", "duplicates"):
         assert f"audit {command} [path]" in content

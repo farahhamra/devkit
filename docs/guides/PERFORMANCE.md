@@ -6,7 +6,7 @@ devkit performance database --input diagnostics/performance/capture.json --app e
 devkit help performance database --json
 ```
 
-This command analyzes an **existing versioned capture**, not application performance from source alone. It requires no additional CLI, database driver or optional extra. It does not connect to MySQL, execute SQL (including EXPLAIN), start applications, instrument code, collect profiles, generate workloads or apply optimizations. Capture creation is a separate, explicitly authorized activity. CPU, heap, cache, browser, .NET Manager and comparison commands are deferred; `performance measure` and `perf` are not commands.
+This command analyzes an **existing versioned capture**, not application performance from source alone. It requires no additional CLI, database driver or optional extra. It does not connect to MySQL, execute SQL (including EXPLAIN), start applications, instrument code, collect profiles, generate workloads or apply optimizations. Capture creation is a separate, explicitly authorized activity. Separate [runtime, memory, cache and comparison commands](PERFORMANCE-RUNTIME.md) support Node/V8 evidence and compatible before/after captures. Browser and .NET Manager profiling remain unsupported; `performance measure` and `perf` are not commands.
 
 ## Inputs and boundaries
 
@@ -43,6 +43,8 @@ Required metadata:
 - `workload`: `name` (non-sensitive identifier) and `duration_ms` (nonnegative number or null); optional `concurrency` (positive integer or null), `warmup_ms` (nonnegative number or null).
 
 Optional metadata: `source_revision` (40/64 lowercase hex characters or null); `runtime` with optional `node` and `prisma_client` version strings. These are reported capture metadata, not independently verified. Names/IDs use ASCII letters/digits plus `_ . : -`, start with an alphanumeric character, and are at most 128 characters. Database identifiers start with a letter/underscore and additionally allow `$`. Version strings begin with a digit and are at most 64 characters. These restrictions reduce accidental raw-data inclusion but are not a guarantee that labels contain no secrets.
+
+Optional `environment`, `process_scope` and `collector` are non-sensitive identifiers using the same name format. They enable `performance compare` without breaking existing 1.0 captures. Comparison requires these fields, actual matching `runtime.node` and database versions, and matching workload name/concurrency/warmup. Query streams match by kind, timing source and fingerprint; SQL and Prisma operation timings stay separate. Missing metadata prevents numeric comparison. Database comparison only compares recorded timing/count streams; it does not repeat schema, plan or index analysis.
 
 ### Query groups
 

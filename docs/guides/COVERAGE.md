@@ -6,6 +6,8 @@ Coverage is automatic, not a new command. Every invocation of `search`, `find`, 
 
 `performance database` also returns coverage, with command-specific `stages.performance`, `performance_selected` and `performance_analyzed` query-group counts. Missing timing/correlation/plans/index inventories, unsupported plans and stale source ranges remain gaps. Its `--strict` gates incomplete evidence, not measured slowness. Source hash verification is not AST analysis, and offline capture processing is not runtime verification. See the [performance capture guide](PERFORMANCE.md).
 
+`performance runtime`, `memory`, `cache` and `compare` use the same performance stage/count fields for processed capture units (CPU/heap nodes, process samples, cache entries, or comparison metrics). They do not run or claim schema/source/dependency scans. Missing companion measurements/metadata, partial windows, counter resets, unavailable dominators and incompatible/unmatched comparison metrics remain explicit gaps. Native V8 inputs without metadata are partial. `--strict` gates incompleteness; comparison's separate `--fail-on-regression` gates measured candidates, not significance. See the [extended performance guide](PERFORMANCE-RUNTIME.md).
+
 1. **Exit code / findings:** did the operation succeed, find failing module checks, or fail to execute?
 2. **Coverage:** what inputs and stages were actually processed, and which known gaps remain?
 3. **Output truncation:** how much of the computed result and metadata is visible?

@@ -36,6 +36,9 @@ def main():
         assert "audit routes [path]" in content
         assert "audit duplicates [path]" in content
         assert "performance database --input <capture.json>" in content
+        for command in ("runtime", "memory", "cache"):
+            assert f"performance {command} --input <capture" in content
+        assert "performance compare --before <capture> --after <capture>" in content
         assert "plan archive <conversation-id>" in content
         assert not re.search(
             r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query)\b", content, re.IGNORECASE
@@ -157,6 +160,28 @@ def main():
         assert performance["data"]["queries"][0]["mappings"][0]["model"] == "Product"
         assert performance["coverage"]["stages"]["performance"] == "partial"
         invoke("performance", "database", "--input", "capture.json", "--app", "erp", "--strict", status=1)
+        for kind in ("runtime", "memory", "cache"):
+            # Only fixture data comes from the checkout; all executable code and
+            # templates under test must be supplied by the installed package.
+            fixture = Path(__file__).resolve().parents[1] / "examples" / f"performance-{kind}.json"
+            name = f"{kind}.json"
+            (root / name).write_bytes(fixture.read_bytes())
+            report = invoke("performance", kind, "--input", name, "--app", "erp")
+            assert report["data"]["summary"]["measurement_units"] > 0
+            assert report["coverage"]["stages"]["schema"] == "not_run"
+            comparison = invoke(
+                "performance",
+                "compare",
+                "--before",
+                name,
+                "--after",
+                name,
+                "--app",
+                "erp",
+                "--fail-on-regression",
+            )
+            assert comparison["data"]["summary"]["compared_metrics"] > 0
+            assert comparison["data"]["summary"]["regression_candidates"] == 0
         if args.query:
             source.write_bytes("const café = '界'; save(\r\n'你好'\r\n);".encode())
             data = invoke("query", "save($ARG)", "backend/src/example.ts")

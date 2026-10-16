@@ -39,6 +39,10 @@ Use `devkit help <command...> --json` for the authoritative options of the insta
 | `devkit audit unused [path]` | Knip graph and TypeScript-aware ESLint local binding candidates; explicit policy entries or repeatable `--entry` |
 | `devkit audit duplicates [path]` | jscpd token clone candidates with both occurrences; `--min-lines`, `--min-tokens` |
 | `devkit performance database --input <capture.json>` | Offline database timing/plan/index evidence, module mappings and explicit unknowns; `--strict` |
+| `devkit performance runtime --input <capture>` | V8 CPU sampling estimates, exported event-loop delay and GC intervals; `--strict` |
+| `devkit performance memory --input <capture>` | Process-memory trends, bounded heap dominators and retaining paths; `--strict` |
+| `devkit performance cache --input <capture.json>` | Epoch-aware counters, hit ratios, latency, growth and capacity/TTL context; `--strict` |
+| `devkit performance compare --before <capture> --after <capture>` | Compatible measured metrics, unknowns and regression candidates; `--regression-percent`, `--fail-on-regression`, `--strict` |
 | `devkit module list` | Configured and discovered module names |
 | `devkit module inspect <module>` | Owned/reference files, Prisma models/tables, enums and related modules; `--scope`, `--related` |
 | `devkit module impact <module>` | Cross-module schema/import consumers |
@@ -69,7 +73,7 @@ All analysis commands return a top-level `coverage` object in JSON (a summary on
 - `counts`, `gaps` and `exclusions` measure unique inputs/locations actually encountered, not hidden descendants or a whole-project percentage. Details identify app availability, selected scope/filters, parser capabilities and unavailable modules omitted by `module check all`.
 - `coverage.output_truncated` is separate from analysis status. A complete scan may have an incomplete display. Summary counts persist under limits; `details_truncated` means scope/issue details were shortened or omitted. Narrow scope or deliberately raise limits before relying on missing evidence.
 
-Cold/warm caches retain the same parser/dependency gaps. Exit `0` can still mean partial analysis. Audits and database performance analysis additionally offer `--strict`, which exits `1` for incomplete coverage; other analysis commands retain their existing exit semantics. Use doctor/config validation to diagnose setup gaps and the actual application compiler/tests to establish correctness.
+Cold/warm caches retain the same parser/dependency gaps. Exit `0` can still mean partial analysis. Audits and all performance commands additionally offer `--strict`, which exits `1` for incomplete coverage; other analysis commands retain their existing exit semantics. Use doctor/config validation to diagnose setup gaps and the actual application compiler/tests to establish correctness.
 
 ### Antigravity plan archiving
 
@@ -93,7 +97,24 @@ The command reads a version `1.0` capture under the project root (ignore/storage
 
 MySQL 8.0/8.4 `EXPLAIN FORMAT=JSON` query-block documents supply optimizer estimates, not measured execution/lock/pool-wait metrics. Unsupported plans, unresolved aliases and missing evidence remain unknown. Tables map to current Prisma models/modules without fabricating executing-call locations. Source-backed locations require supplied inclusive line ranges and a matching raw-file SHA-256; this verifies content, not runtime attribution. Prisma/migration index declarations are distinct from exported database inventories. Functional/unique/constraint indexes are protected; no index creation/drop fixes are generated.
 
-`coverage.stages.performance`, query-group counts and full summaries accompany bounded output. `--strict` gates incomplete evidence, not universal performance budgets; exit `0` does not mean the app is fast. No database connections, SQL execution (including EXPLAIN), capture instrumentation, workload generation or automatic uploads occur. Captures need a separately authorized collection workflow, must omit raw SQL parameters/customer data, and should stay out of Git. CPU/heap/cache/browser/.NET Manager and comparison commands are deferred. The bundled guide is `docs/guides/PERFORMANCE.md` in the Devkit checkout.
+`coverage.stages.performance`, query-group counts and full summaries accompany bounded output. `--strict` gates incomplete evidence, not universal performance budgets; exit `0` does not mean the app is fast. No database connections, SQL execution (including EXPLAIN), capture instrumentation, workload generation or automatic uploads occur. Captures need a separately authorized collection workflow, must omit raw SQL parameters/customer data, and should stay out of Git. The bundled guide is `docs/guides/PERFORMANCE.md` in the Devkit checkout.
+
+### Runtime, memory, cache and comparison evidence
+
+```powershell
+devkit performance runtime --input diagnostics/performance/runtime.json --app erp --json
+devkit performance memory --input diagnostics/performance/memory.json --app erp --json
+devkit performance cache --input diagnostics/performance/cache.json --app erp --json
+devkit performance compare --before diagnostics/performance/before.json --after diagnostics/performance/after.json --app erp --json
+```
+
+Runtime reports sampled V8 self/inclusive CPU costs, exported event-loop delay distributions and GC interval unions, not instrumented durations or stop-the-world pause proof. Recursive call-tree instances stay distinct; function groups aggregate self cost only. Memory reports separate RSS/heap/external trends, exporter-labelled post-GC growth candidates, bounded heap constructor groups, dominator retained-size estimates and retaining paths. These graph estimates do not prove live-runtime liveness or leaks; overlapping retained sizes are not additive. Cache reports counter-epoch deltas, hits/(hits+misses), observed latency distributions, storage growth and exported capacity/TTL policy. Reset intervals are excluded; missing counters/size/latency remain unknown.
+
+Version `2.0` captures provide app/runtime/workload metadata and optional hash-verified source ranges. Native `.cpuprofile`/`.heapsnapshot` files can be inspected directly but lack metadata and companion evidence, so remain partial. Raw script URLs, heap string values and property names are omitted from output. Captures themselves can contain secrets and require separate authorization, sanitization and local Git exclusions. Paths obey project-root/app/ignore boundaries; no referenced URLs, source maps or app code are executed. These commands need no extra CLI and do not collect profiles or connect to cache/database services. Browser/.NET Manager profiling is not supported.
+
+Comparison supports database `1.0` and runtime/memory/cache `2.0` captures of the same kind. Present, matching environment/process scope/collector/runtime and workload name/concurrency/warmup are required; database comparison also checks actual engine/version. Missing metadata prevents numeric comparison. Matching measured metrics retain units and collector boundaries; totals normalize per second, endpoint sizes require equal duration or operation count, and partial windows/unmatched frames are unknown rather than zero. A single pair does not establish statistical significance or causality.
+
+`--regression-percent` defaults to `10`; compare's optional `--fail-on-regression` exits `1` for directional threshold-crossing candidates. `--strict` separately gates incomplete coverage on all performance commands. Exit `0` can still contain unknowns/candidates; invalid input/configuration exits `2`. Full summaries and coverage survive `--max-results`/`--max-output-chars`; displayed evidence can be truncated. No schema/source/dependency scan is claimed by runtime/memory/cache or compare. Contracts, limits and synthetic fixtures are documented in `docs/guides/PERFORMANCE-RUNTIME.md` in the Devkit checkout.
 
 ### Security and code-quality evidence
 

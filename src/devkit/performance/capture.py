@@ -126,13 +126,14 @@ def _constant(_):
     invalid("JSON", "nonfinite numeric constants are not supported")
 
 
-def preflight(payload):
+def preflight(payload, maximum_nodes=None):
     """Reject huge container graphs before json.loads allocates them.
 
     For valid JSON, structural punctuation is at most twice the value-node
     count. Quoted/escaped punctuation does not count. Exact nodes are checked
     after decoding too; this is not a replacement JSON parser.
     """
+    maximum_nodes = MAX_NODES if maximum_nodes is None else maximum_nodes
     quoted, escaped, depth, structure = False, False, 0, 0
     for byte in payload:
         if quoted:
@@ -151,7 +152,7 @@ def preflight(payload):
             depth -= 1
         elif byte in (44, 58):
             structure += 1
-        if structure > MAX_NODES * 2 or depth > 65:
+        if structure > maximum_nodes * 2 or depth > 65:
             invalid("JSON", "structure exceeds the node/depth limit")
 
 
@@ -171,41 +172,47 @@ def eligible_path(project, raw, *, app=None):
     return path
 
 
-def load(project, raw):
+def load_json(project, raw, *, suffixes=(".json",), maximum_bytes=None, maximum_nodes=None):
+    maximum_bytes = MAX_BYTES if maximum_bytes is None else maximum_bytes
+    maximum_nodes = MAX_NODES if maximum_nodes is None else maximum_nodes
     path = eligible_path(project, raw)
-    if path.suffix.lower() != ".json":
-        raise DevkitError("Performance --input requires a versioned .json capture, not raw logs or SQL")
-    if path.stat().st_size > MAX_BYTES:
-        raise DevkitError("Performance capture exceeds the 16 MiB input limit")
+    if path.suffix.lower() not in suffixes:
+        raise DevkitError("Unsupported performance input extension; see devkit help performance")
+    if path.stat().st_size > maximum_bytes:
+        raise DevkitError(f"Performance capture exceeds the {maximum_bytes // (1024 * 1024)} MiB input limit")
     with path.open("rb") as handle:
-        payload = handle.read(MAX_BYTES + 1)
-    if len(payload) > MAX_BYTES:
-        raise DevkitError("Performance capture exceeds the 16 MiB input limit")
-    preflight(payload)
+        payload = handle.read(maximum_bytes + 1)
+    if len(payload) > maximum_bytes:
+        raise DevkitError(f"Performance capture exceeds the {maximum_bytes // (1024 * 1024)} MiB input limit")
+    preflight(payload, maximum_nodes)
     try:
         data = json.loads(payload.decode("utf-8-sig"), object_pairs_hook=_unique, parse_constant=_constant)
     except (UnicodeError, ValueError, RecursionError) as exc:
         raise DevkitError("Performance capture must contain valid UTF-8 JSON (contents omitted)") from exc
-    stack, visited = [(data, 0)], 0
+    stack, visited = [iter((data,))], 0
     while stack:
-        value, depth = stack.pop()
+        value = next(stack[-1], StopIteration)
+        if value is StopIteration:
+            stack.pop()
+            continue
         visited += 1
-        if visited > MAX_NODES or depth > 64:
+        if visited > maximum_nodes or len(stack) > 65:
             invalid("JSON", "structure exceeds the node/depth limit")
         if isinstance(value, dict):
-            if visited + len(stack) + len(value) > MAX_NODES:
-                invalid("JSON", "structure exceeds the node/depth limit")
-            stack.extend((v, depth + 1) for v in value.values())
+            stack.append(iter(value.values()))
         elif isinstance(value, list):
-            if visited + len(stack) + len(value) > MAX_NODES:
-                invalid("JSON", "structure exceeds the node/depth limit")
-            stack.extend((v, depth + 1) for v in value)
+            stack.append(iter(value))
         elif isinstance(value, float) and not math.isfinite(value):
             invalid("JSON", "nonfinite numeric values are not supported")
+    return data, project.rel(path)
+
+
+def load(project, raw):
+    data, path = load_json(project, raw)
     validate(data)
     if project.app not in {"all", data["metadata"]["app"]}:
         raise DevkitError("Capture app does not match --app; captures are analyzed one app at a time")
-    return data, project.rel(path)
+    return data, path
 
 
 def validate(data):
@@ -220,9 +227,12 @@ def validate(data):
         data["metadata"],
         "metadata",
         ("app", "captured_at", "database", "workload"),
-        ("source_revision", "runtime"),
+        ("source_revision", "runtime", "environment", "process_scope", "collector"),
     )
     choice(meta["app"], "metadata.app", {"erp", "hub"})
+    for name in ("environment", "process_scope", "collector"):
+        if name in meta:
+            string(meta[name], "metadata." + name)
     try:
         timestamp = datetime.fromisoformat(meta["captured_at"])
         if timestamp.utcoffset() is None:

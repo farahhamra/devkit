@@ -573,6 +573,6 @@ class DatabaseAnalysis:
                 "MySQL EXPLAIN FORMAT=JSON contains optimizer estimates, not measured rows, lock time, pool wait, actual execution time or guaranteed bottlenecks. No SQL is executed.",
                 "Partial samples do not establish request-wide counts or absence of N+1. Detached work may outlive the request. No percentiles are inferred from averages.",
                 "Index definitions in Prisma/migrations are not proof of deployed indexes. Functional/unique/constraint indexes are protected; no CREATE/DROP INDEX or application fixes are generated.",
-                "CPU, heap retention, browser/cache behavior, .NET Manager and comparison commands are not implemented in this database-only release.",
+                "CPU, heap and cache measurements use the separate performance runtime/memory/cache commands. Comparison consumes compatible capture streams. Browser-specific and .NET Manager formats are not supported.",
             ],
         }

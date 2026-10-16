@@ -1,0 +1,33 @@
+{
+  "capture_version": "2.0",
+  "kind": "memory",
+  "metadata": {
+    "app": "erp",
+    "captured_at": "2026-10-15T10:00:00Z",
+    "runtime": {"engine": "node", "version": "22.14.0"},
+    "workload": {"name": "synthetic-example", "duration_ms": 40, "concurrency": 1, "warmup_ms": 0, "operations": 4},
+    "environment": "synthetic-fixture",
+    "process_scope": "backend-main",
+    "collector": "node-perf-example-v1"
+  },
+  "process_samples": [
+    {"at_ms": 0, "heap_used_bytes": 100, "heap_total_bytes": 200, "rss_bytes": 500, "external_bytes": 50, "array_buffers_bytes": 20, "post_gc": true},
+    {"at_ms": 20, "heap_used_bytes": 120, "heap_total_bytes": 200, "rss_bytes": 500, "external_bytes": 50, "array_buffers_bytes": 20, "post_gc": true},
+    {"at_ms": 40, "heap_used_bytes": 150, "heap_total_bytes": 200, "rss_bytes": 500, "external_bytes": 50, "array_buffers_bytes": 20, "post_gc": true}
+  ],
+  "heap_snapshot": {
+    "snapshot": {
+      "meta": {
+        "node_fields": ["type", "name", "id", "self_size", "edge_count"],
+        "node_types": [["synthetic", "object", "string"], "string", "number", "number", "number"],
+        "edge_fields": ["type", "name_or_index", "to_node"],
+        "edge_types": [["internal", "property", "weak"], "string_or_number", "node"]
+      },
+      "node_count": 6,
+      "edge_count": 7
+    },
+    "nodes": [0,0,1,0,3, 1,1,3,10,1, 1,2,5,20,1, 1,3,7,30,1, 1,4,9,40,1, 2,5,11,50,0],
+    "edges": [0,6,5, 0,6,10, 2,6,25, 0,6,15, 1,6,15, 0,6,20, 0,6,15],
+    "strings": ["", "Cache", "Owner", "Shared", "Leaf", "SYNTHETIC_PRIVATE_VALUE", "SYNTHETIC_PRIVATE_PROPERTY"]
+  }
+}

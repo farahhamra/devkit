@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import math
 import re
 import sys
 from typing import Any
@@ -26,6 +27,19 @@ EXAMPLES = {
     "performance database": [
         "devkit performance database --input diagnostics/performance/capture.json --app erp --json",
         "devkit performance database --input diagnostics/performance/capture.json --strict --json",
+    ],
+    "performance runtime": [
+        "devkit performance runtime --input diagnostics/performance/cpu.cpuprofile --app erp --json"
+    ],
+    "performance memory": [
+        "devkit performance memory --input diagnostics/performance/heap.heapsnapshot --app erp --json"
+    ],
+    "performance cache": [
+        "devkit performance cache --input diagnostics/performance/cache.json --app erp --json"
+    ],
+    "performance compare": [
+        "devkit performance compare --before diagnostics/performance/before.json --after diagnostics/performance/after.json --app erp --json",
+        "devkit performance compare --before before.json --after after.json --regression-percent 10 --fail-on-regression",
     ],
     "audit routes": ["devkit audit routes --app erp --policy devkit/audit.yaml --json"],
     "audit isolation": ["devkit audit isolation backend/src --app erp --json"],
@@ -96,6 +110,10 @@ EXAMPLES = {
 OUTPUTS = {
     "plan archive": "Shared archive index, plan/task source and destination paths, verification and source-clearing status; no document contents",
     "performance database": "Offline query timing/count rankings by measurement stream, MySQL plan estimates, Prisma/module mappings, index candidates, verified available source ranges and explicit coverage gaps",
+    "performance runtime": "V8 sampled self/inclusive CPU estimates, event-loop histograms, GC event intervals and explicit coverage gaps; no live profiling",
+    "performance memory": "Process-memory trends, V8 heap constructor groups, bounded dominator retention estimates and retaining paths; no raw string/property values",
+    "performance cache": "Epoch-aware counter deltas, hit ratios, observed latency distributions, storage growth and exported capacity/TTL context",
+    "performance compare": "Metadata compatibility, normalized matching metrics, unknown/unmatched measurements and threshold-based regression candidates; no statistical significance claim",
     "audit routes": "Configured authentication/role/permission middleware checks, ordered mount evidence, exact registration spans and explicit unknowns",
     "audit isolation": "Prisma organization-scope contracts, exact call spans, missing constraints and unsupported/dynamic cases",
     "audit security": "Bundled Semgrep Community security candidates with source spans; no source/secret values echoed",
@@ -148,6 +166,16 @@ def bounded_int(low: int, high: int):
         return number
 
     return parse
+
+
+def regression_percent(value: str) -> float:
+    try:
+        number = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number") from exc
+    if not math.isfinite(number) or not 0 <= number <= 1_000_000:
+        raise argparse.ArgumentTypeError("must be finite and between 0 and 1000000")
+    return number
 
 
 def build_parser() -> tuple[Parser, dict[str, Parser]]:
@@ -206,7 +234,7 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
             else "\nFormats: readable text (default) or --json. Scope: project root and --app; only Devkit .ignore applies. Analysis includes measured coverage (stages, counts, gaps and exclusions); complete processing is not runtime proof."
         )
         epilog += (
-            "\nExit codes: 0 report generated (findings/unknowns may remain), 1 incomplete --strict performance analysis, 2 invalid/unsafe capture or configuration/I/O failure. Offline evidence only: no SQL, instrumentation, profiling or load generation."
+            "\nExit codes: 0 report generated (findings/unknowns may remain), 1 incomplete --strict performance analysis or comparison --fail-on-regression gate, 2 invalid/unsafe capture or configuration/I/O failure. Offline evidence only: no SQL, instrumentation, profiling or load generation."
             if key.startswith("performance")
             else "\nExit codes: 0 no finding gate triggered (inspect coverage/unknowns), 1 policy violation, finding at --fail-on severity or incomplete --strict audit, 2 invalid policy, missing engine or scanner failure. Static evidence is not runtime security proof; no automatic fixes."
             if key.startswith("audit")
@@ -243,6 +271,46 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
         "--strict",
         action="store_true",
         help="Exit 1 on incomplete evidence/coverage; findings alone are not failures",
+    )
+    for action, description in (
+        ("runtime", "Analyze V8 CPU profiles and exported Node event-loop/GC measurements."),
+        ("memory", "Analyze process-memory samples and bounded V8 heap retention graphs."),
+        ("cache", "Analyze exported cache counters, timings, capacity and growth."),
+    ):
+        command = add(psubs, action, description, "performance")
+        command.add_argument(
+            "--input",
+            required=True,
+            help="Project-relative capture 2.0 JSON; runtime/memory also accept native .cpuprofile/.heapsnapshot",
+        )
+        command.add_argument(
+            "--strict", action="store_true", help="Exit 1 when supplied evidence or coverage is incomplete"
+        )
+    comparison = add(
+        psubs,
+        "compare",
+        "Compare compatible captures and report measured regression candidates.",
+        "performance",
+    )
+    comparison.add_argument("--before", required=True, help="Project-relative baseline capture")
+    comparison.add_argument(
+        "--after", required=True, help="Project-relative candidate capture of the same kind"
+    )
+    comparison.add_argument(
+        "--regression-percent",
+        type=regression_percent,
+        default=10.0,
+        help="Relative worsening threshold (default: 10); zero baselines are reported explicitly",
+    )
+    comparison.add_argument(
+        "--fail-on-regression",
+        action="store_true",
+        help="Exit 1 for comparable regression candidates crossing the threshold",
+    )
+    comparison.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 1 for incomplete evidence, incompatibility or unmatched metrics",
     )
     add(subs, "doctor", "Diagnose this installation and project without writing or scanning source.")
     configuration = add(
@@ -608,7 +676,7 @@ def catalog(registry: dict[str, Parser], topic: str = "") -> list[dict[str, Any]
                     else "Success (including no matches)",
                     "1": "Policy violation, finding at the selected severity threshold, or incomplete --strict audit"
                     if name.startswith("audit")
-                    else "Incomplete --strict performance analysis"
+                    else "Incomplete --strict performance analysis or comparison --fail-on-regression gate"
                     if name.startswith("performance")
                     else "Diagnostic checks failed (doctor/config validate)"
                     if name == "doctor" or name.startswith("config")

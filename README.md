@@ -1,6 +1,6 @@
 # ElectroERP Devkit
 
-A Python CLI for Antigravity and developers working on ElectroERP. It searches source, explains module ownership, reads Prisma schemas, traces static source dependencies, audits security/code-quality candidates, and analyzes exported database performance evidence. Source and performance analysis run locally without a database connection; dependency advisory checks can query OSV online or use an offline database.
+A Python CLI for Antigravity and developers working on ElectroERP. It searches source, explains module ownership, reads Prisma schemas, traces static source dependencies, audits security/code-quality candidates, and analyzes exported database, runtime, memory and cache performance evidence. Source and performance analysis run locally without a database connection; dependency advisory checks can query OSV online or use an offline database.
 
 ## Install
 
@@ -78,6 +78,10 @@ Analysis commands write the configuration directory, missing `.ignore`, and disp
 | `devkit audit unused [path]` | Knip + TypeScript-aware ESLint unused-code candidates; explicit `--entry` or policy entries |
 | `devkit audit duplicates [path]` | jscpd token clone candidates with both line ranges; `--min-lines`, `--min-tokens` |
 | `devkit performance database --input <capture.json>` | Offline query timings, MySQL plan estimates, Prisma/module/index evidence and unknowns; `--strict` |
+| `devkit performance runtime --input <capture>` | V8 CPU self/inclusive estimates, event-loop delay and GC intervals; JSON or `.cpuprofile` |
+| `devkit performance memory --input <capture>` | Process-memory trends, heap constructor groups, dominator estimates and retaining paths; JSON or `.heapsnapshot` |
+| `devkit performance cache --input <capture.json>` | Counter deltas, hit ratios, observed latency, storage growth and capacity/TTL context |
+| `devkit performance compare --before <capture> --after <capture>` | Compatible measured metrics and regression candidates; `--regression-percent`, `--fail-on-regression`, `--strict` |
 | `devkit module list` | Configured/discovered modules and available layers |
 | `devkit module inspect <module>` | Models, tables, enums, dependencies, consumers, categorized files and reasons |
 | `devkit module impact <module>` | Cross-module schema and import consumers, documentation and validation areas |
@@ -150,16 +154,22 @@ devkit audit duplicates frontend/src --app erp --json
 
 Findings retain source locations and full summary counts. Unknown policy, incomplete engine scans and missing advisory data remain visible in coverage. `--fail-on` controls finding severity gates, while `--strict` also fails incomplete coverage. Static candidates do not prove runtime security or that code can safely be deleted. See [audit installation, policy and output](docs/guides/AUDIT.md). Performance profiling is not included.
 
-## Database performance evidence
+## Performance evidence
 
 ```powershell
 devkit performance database --input diagnostics/performance/capture.json --app erp --json
 devkit performance database --input diagnostics/performance/capture.json --app erp --strict --json
+devkit performance runtime --input diagnostics/performance/runtime.json --app erp --json
+devkit performance memory --input diagnostics/performance/memory.json --app erp --json
+devkit performance cache --input diagnostics/performance/cache.json --app erp --json
+devkit performance compare --before diagnostics/performance/before.json --after diagnostics/performance/after.json --app erp --json
 ```
 
 Analyze an explicitly supplied versioned capture offline: rank recorded query cost within separate SQL/Prisma timing streams, inspect MySQL 8.0/8.4 JSON-plan estimates, correlate physical tables with Prisma models/modules, and review index/repeated-query candidates. Reported request correlation and detached work remain distinct; query durations are not summed into request latency. Source ranges are emitted only when supplied locations match current file hashes; schema locations remain static context, not executing-call attribution.
 
-This command does not create measurements, connect to a database, execute EXPLAIN, change instrumentation or generate load. Captures need a separate opt-in collection workflow. Missing evidence stays unknown; `--strict` gates incomplete coverage, not universal latency thresholds. Functional/unique/constraint indexes are protected and no SQL fixes are generated. CPU, heap, caching, browser/.NET and comparisons remain deferred. See the [capture contract and integration guide](docs/guides/PERFORMANCE.md) and [synthetic example](examples/performance-capture.json).
+The Node runtime command reports sampled CPU costs, event-loop delay distributions and GC interval unions. Memory analysis reports separate RSS/heap/external trends and bounded V8 retained-graph estimates, not proof of leaks. Cache analysis uses counter epochs to exclude reset intervals; unknown counters/latencies are not invented. Comparisons require matching exporter-declared environment, runtime, collector and workload boundaries; unmatched measurements are unknown, not zero. `--fail-on-regression` optionally gates threshold-crossing candidates, not statistical significance.
+
+These commands do not create measurements, connect to a database, execute EXPLAIN, change instrumentation or generate load. Captures need a separate opt-in collection workflow. Missing evidence stays unknown; `--strict` gates incomplete coverage, not universal latency thresholds. Functional/unique/constraint indexes are protected and no fixes are generated. Browser and .NET Manager profiling remain unsupported. See the [database capture contract](docs/guides/PERFORMANCE.md), [runtime/memory/cache/comparison guide](docs/guides/PERFORMANCE-RUNTIME.md), and [synthetic database example](examples/performance-capture.json). No extra CLI is required to analyze supplied captures.
 
 ## Diagnose installation and configuration
 
