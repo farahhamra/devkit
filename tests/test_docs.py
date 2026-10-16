@@ -45,6 +45,8 @@ def test_analysis_templates_describe_capabilities_without_tool_preference(name):
     assert "performance compare --before <capture> --after <capture>" in content
     assert "--fail-on-regression" in content
     assert "plan archive <conversation-id>" in content
+    assert ".gemini/antigravity-ide/brain/<conversation-id>/" in content
+    assert ".gemini/antigravity/brain/" not in content
     for command in ("routes", "isolation", "security", "dependencies", "unused", "duplicates"):
         assert f"audit {command} [path]" in content
     assert "--symbol" in content and "--with-context" in content

@@ -40,6 +40,7 @@ def main():
             assert f"performance {command} --input <capture" in content
         assert "performance compare --before <capture> --after <capture>" in content
         assert "plan archive <conversation-id>" in content
+        assert ".gemini/antigravity-ide/brain/<conversation-id>/" in content
         assert not re.search(
             r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query)\b", content, re.IGNORECASE
         )
@@ -91,7 +92,7 @@ def main():
             "report"
         ]
         assert invoke("feedback", "inspect", report["id"])["data"]["title"] == "Package smoke test"
-        conversation = profile / ".gemini/antigravity/brain/package-smoke"
+        conversation = profile / ".gemini/antigravity-ide/brain/package-smoke"
         conversation.mkdir(parents=True)
         documents = {"implementation_plan.md": b"# Plan\r\nPackage check\r\n", "task.md": b"- [x] Verify\n"}
         for name, content in documents.items():

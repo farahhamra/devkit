@@ -27,9 +27,11 @@ Replace `<conversation-id>` with the folder ID. IDs accept 1–128 ASCII letters
 The current user's profile (`Path.home()`, normally `%USERPROFILE%` on Windows) supplies these exact sources:
 
 ```text
-C:\Users\<you>\.gemini\antigravity\brain\<conversation-id>\implementation_plan.md
-C:\Users\<you>\.gemini\antigravity\brain\<conversation-id>\task.md
+C:\Users\<you>\.gemini\antigravity-ide\brain\<conversation-id>\implementation_plan.md
+C:\Users\<you>\.gemini\antigravity-ide\brain\<conversation-id>\task.md
 ```
+
+Only the `antigravity-ide` brain is an active source. There is no fallback to the legacy `antigravity` directory or workspace `.agents/implementation/`, and `tasks.md` (plural) is not accepted as the task document. A missing required document returns exit `2` without archiving or clearing another location. `--dry-run` shows the exact source paths before any writes.
 
 The destination is always inside the selected project root:
 
@@ -53,6 +55,8 @@ No Prisma configuration, parser, app source scan, database or network connection
 ## Verification and recovery
 
 Both copies must match their SHA-256 hashes before either source is cleared. Devkit checks the source snapshots again before clearing, and checks each file through its open handle immediately before truncating it. Existing archives are never overwritten. Symlinks, junctions, non-regular files and unexpected hard links are refused. Final publication uses temporary same-filesystem hard links, supported by NTFS and standard Linux filesystems; an unsupported filesystem fails without clearing originals. File writes are flushed; directory entries are also flushed where supported by POSIX.
+
+Version 0.12.1 corrects the source directory used by earlier releases. Existing archive copies/records are not migrated or deleted. Recovery records remain bound to their original `source_directory`; an unfinished record for the legacy directory cannot authorize clearing documents in the IDE directory. Such a conflict returns exit `2`; preserve the record and copies for manual review rather than editing the recorded source path to bypass the check.
 
 The operation record progresses through `copying`, `clearing` and `complete`. A project archive lock serializes Devkit invocations. Failures return exit `2`, a message, the record path and available per-file verification/source statuses. No document contents appear in output.
 

@@ -661,7 +661,7 @@ def catalog(registry: dict[str, Parser], topic: str = "") -> list[dict[str, Any]
                 if name == "doctor" or name.startswith("config")
                 else "Project-wide fixed agent files under --root; ignores app/config/cache selection"
                 if name.startswith("agents")
-                else "Current user's Antigravity brain; local numbered archives under --root/.agents/implementation/trash; apply clears both originals"
+                else "Current user's .gemini/antigravity-ide/brain/<conversation-id>/implementation_plan.md and task.md; local numbered archives under --root/.agents/implementation/trash; apply clears both originals"
                 if name.startswith("plan")
                 else "Local feedback only; YAML/source are not inspected"
                 if name.startswith("feedback")

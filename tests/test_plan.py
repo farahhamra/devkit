@@ -33,7 +33,7 @@ def archive(tmp_path, monkeypatch):
     profile = tmp_path / "User profile"
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: profile))
     for key, value in DOCUMENTS.items():
-        write(profile / ".gemini/antigravity/brain" / ID / NAMES[key], value)
+        write(profile / ".gemini/antigravity-ide/brain" / ID / NAMES[key], value)
     return PlanArchive(PlanContext(root), ID)
 
 
@@ -88,6 +88,69 @@ def test_archive_exact_bytes_empty_in_place_and_repeat(archive, capsys):
     before = snapshot(archive.root.parent)
     assert invoke(archive, capsys)["status"] == "already_archived"
     assert invoke(archive, capsys, "--dry-run")["status"] == "already_archived"
+    assert snapshot(archive.root.parent) == before
+
+
+def test_only_ide_brain_sources_are_archived_and_cleared(archive, capsys):
+    expected = Path.home() / ".gemini/antigravity-ide/brain" / ID
+    assert archive.source == expected
+    other_paths = [
+        Path.home() / ".gemini/antigravity/brain" / ID,
+        archive.root / ".agents/implementation",
+    ]
+    untouched = []
+    for directory in other_paths:
+        for name in ("implementation_plan.md", "task.md", "tasks.md"):
+            untouched.append(write(directory / name, b"Unrelated document; do not clear"))
+    untouched.append(write(expected / "tasks.md", b"Plural name is not an archive source"))
+    before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in untouched}
+    preview = invoke(archive, capsys, "--dry-run")
+    for key, row in preview["files"].items():
+        assert Path(row["source"]) == expected / NAMES[key]
+    result = invoke(archive, capsys)
+    for key, folder in (("plan", "plans"), ("task", "tasks")):
+        row = result["files"][key]
+        assert row["archive"] == f"{ARCHIVE}/{folder}/001_{NAMES[key]}"
+        assert (archive.root / row["archive"]).read_bytes() == DOCUMENTS[key]
+    assert sources(archive) == dict.fromkeys(NAMES, b"")
+    assert {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in untouched} == before
+
+
+@pytest.mark.parametrize("alternative", ["legacy_brain", "workspace", "plural_task"])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_missing_ide_sources_never_fall_back(archive, capsys, alternative, dry_run):
+    expected = Path.home() / ".gemini/antigravity-ide/brain" / ID
+    if alternative == "plural_task":
+        (expected / "task.md").rename(expected / "tasks.md")
+    else:
+        directory = (
+            Path.home() / ".gemini/antigravity/brain" / ID
+            if alternative == "legacy_brain"
+            else archive.root / ".agents/implementation"
+        )
+        for key, value in DOCUMENTS.items():
+            write(directory / NAMES[key], value)
+            (expected / NAMES[key]).unlink()
+    before = snapshot(archive.root.parent)
+    result = invoke(archive, capsys, *(["--dry-run"] if dry_run else []), status=2)
+    assert "antigravity-ide" in result["error"]
+    assert "task.md" in result["error"]
+    assert snapshot(archive.root.parent) == before
+
+
+def test_legacy_source_record_cannot_resume_clearing_ide_documents(archive, capsys, monkeypatch):
+    with monkeypatch.context() as patch:
+        patch.setattr(PlanArchive, "clear", lambda *_: (_ for _ in ()).throw(OSError("Cannot clear")))
+        failed = invoke(archive, capsys, status=2)
+    record_path = archive.root / failed["record"]
+    record = json.loads(record_path.read_bytes())
+    assert record["phase"] == "clearing"
+    record["source_directory"] = str(Path.home() / ".gemini/antigravity/brain" / ID)
+    write(record_path, json.dumps(record).encode())
+    before = snapshot(archive.root.parent)
+    result = invoke(archive, capsys, status=2)
+    assert "different Antigravity profile" in result["error"]
+    assert sources(archive) == DOCUMENTS
     assert snapshot(archive.root.parent) == before
 
 

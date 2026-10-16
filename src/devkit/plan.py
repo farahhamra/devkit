@@ -168,7 +168,9 @@ class PlanArchive:
         self.context = context
         self.root = context.root
         self.identifier = conversation_id(identifier)
-        self.source = Path.home().absolute() / ".gemini/antigravity/brain" / self.identifier
+        # Active documents belong only to the IDE brain, never workspace archives
+        # or the legacy directory: successful archiving clears these exact files.
+        self.source = Path.home().absolute() / ".gemini/antigravity-ide/brain" / self.identifier
         self.record = None
         self.record_before = None
 

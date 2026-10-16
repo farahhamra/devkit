@@ -206,7 +206,7 @@ devkit plan archive <conversation-id> --dry-run
 devkit plan archive <conversation-id> --json
 ```
 
-This command reads the current user's `.gemini/antigravity/brain/<conversation-id>/implementation_plan.md` and `task.md`, saves byte-exact numbered copies under `.agents/implementation/trash/plans/` and `tasks/`, verifies both copies, then clears the original files in place. Both copies share the next available index (for example `055_implementation_plan.md` and `055_task.md`). Git exclusions and recovery records keep the archives local and allow interrupted operations to resume without clearing changed content. A new pair in the same conversation can be archived again. The command needs no Prisma configuration or source indexing. See [usage, local storage and recovery](docs/guides/PLAN.md).
+This command reads the current user's `.gemini/antigravity-ide/brain/<conversation-id>/implementation_plan.md` and `task.md`, saves byte-exact numbered copies under `.agents/implementation/trash/plans/` and `tasks/`, verifies both copies, then clears the original files in place. The IDE brain is the only source; workspace documents, the legacy brain directory and plural `tasks.md` are not fallbacks. Both copies share the next available index (for example `055_implementation_plan.md` and `055_task.md`). Git exclusions and recovery records keep the archives local and allow interrupted operations to resume without clearing changed content. A new pair in the same conversation can be archived again. The command needs no Prisma configuration or source indexing. See [usage, local storage and recovery](docs/guides/PLAN.md).
 
 ## Local feedback
 
