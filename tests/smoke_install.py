@@ -29,6 +29,10 @@ def main():
     assert audit_assets.joinpath("security.yaml").is_file()
     assert audit_assets.joinpath("unused.mjs").is_file()
     assert audit_assets.joinpath("knip-plugins.mjs").is_file()
+    collector = files("devkit").joinpath("node_collector")
+    for name in ("collector.mjs", "adapters.mjs", "storage.mjs", "package.json"):
+        assert collector.joinpath(name).is_file(), "Optional Node collector must ship in installed wheels"
+    assert json.loads(collector.joinpath("package.json").read_text())["version"] == __version__
     for template in resources.iterdir():
         content = template.read_text(encoding="utf-8")
         assert "analyze <file>" in content

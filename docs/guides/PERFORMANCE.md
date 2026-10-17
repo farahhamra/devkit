@@ -22,6 +22,8 @@ The [synthetic example](../../examples/performance-capture.json) illustrates the
 
 ## Capture contract 1.0
 
+The existing 1.0 contract below remains accepted unchanged. [Optional Node collection](PERFORMANCE-COLLECTOR.md) adds input 1.1, with required lifecycle/dropped-sample/window evidence. It records logical Prisma operations, not physical SQL plans/indexes; live integration remains a separately authorized app task.
+
 The capture version is separate from Devkit's output envelope (`schema_version: "1.0"`). Unknown fields outside the native plan document are rejected, including raw `sql`, `params`, result rows, arbitrary notes and connection strings. Optional fields below may be omitted; only explicitly nullable fields accept `null`.
 
 ### Top level and metadata

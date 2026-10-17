@@ -143,6 +143,7 @@ class Configuration:
         self.root = Path(root).expanduser().resolve() if root else detect_root(Path.cwd().resolve())
         if not self.root.is_dir():
             raise DevkitError(f"Project root is not a directory: {self.root}")
+        self._relative_paths: dict[str, str] = {}
         self.config_path = (
             Path(config).expanduser().resolve() if config else self.root / "devkit/electroerp.yaml"
         )
@@ -203,7 +204,12 @@ class Configuration:
             self.resolve(target, must_exist=False)
 
     def rel(self, path: Path) -> str:
-        return path.relative_to(self.root).as_posix()
+        # Pure lexical results only. Never cache filesystem eligibility/stat results.
+        # Windows Path equality ignores case; the display cache must not.
+        key = str(path)
+        if key not in self._relative_paths:
+            self._relative_paths[key] = path.relative_to(self.root).as_posix()
+        return self._relative_paths[key]
 
     def resolve(self, path: str | Path, must_exist: bool = True) -> Path:
         raw = Path(path)
@@ -369,7 +375,7 @@ class Project(Configuration):
             self._files = self.entries()
         return self._files
 
-    def text(self, path: Path) -> str | None:
+    def text(self, path: Path, *, cache: bool = True, stats: dict | None = None) -> str | None:
         if path not in self._texts:
             self.coverage.start("text")
             relative = self.rel(path)
@@ -382,7 +388,12 @@ class Project(Configuration):
                 else:
                     with path.open("rb") as handle:
                         head = handle.read(8192)
-                        data = head if b"\x00" in head else head + handle.read()
+                        if stats is not None:
+                            stats["bytes_read"] += len(head)
+                        tail = b"" if b"\x00" in head else handle.read()
+                        if stats is not None:
+                            stats["bytes_read"] += len(tail)
+                        data = head + tail
                     if b"\x00" in data:
                         reason = "binary_content"
                     else:
@@ -399,7 +410,7 @@ class Project(Configuration):
             else:
                 self.coverage.record("text_read", relative)
             self.coverage.finish("text")
-        return self._texts[path]
+        return self._texts[path] if cache else self._texts.pop(path)
 
     def schema_paths(self) -> list[Path]:
         self.coverage.start("schema")

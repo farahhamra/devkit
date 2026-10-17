@@ -16,7 +16,7 @@ def performance(project, args):
         coverage.details["performance_capture"] = {
             "path": path,
             "app": capture["metadata"]["app"],
-            "version": "1.0",
+            "version": capture["capture_version"],
         }
         result = DatabaseAnalysis(project, capture).run()
         result["input"] = path

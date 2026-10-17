@@ -109,6 +109,8 @@ Incompatible metadata alone does not error unless `--strict` is selected. `--fai
 
 ## Separate, opt-in collection guidance
 
+Version 0.13.0 adds a separate [optional Node collector and lifecycle contracts 1.1/2.1](PERFORMANCE-COLLECTOR.md). It is disabled by default, shipped in the checkout/wheel, and not installed into ElectroERP automatically. Existing 2.0/native inputs remain supported. Version 2.1 requires collection status/drop/window evidence; incomplete collection blocks numeric comparison. Actual partial windows still produce gaps. The offline commands themselves still perform no collection.
+
 No collector is installed into ElectroERP by this release. An application agent implementing a separately authorized exporter should:
 
 1. Use local/staging controlled data, a fixed workload, actual versions/hardware identity, explicit warmup/concurrency, and per-process/worker scope. Keep CPU/profile/counter boundaries aligned. Never silently profile production.

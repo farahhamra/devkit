@@ -8,6 +8,7 @@ import json
 import math
 import re
 import sys
+import time
 from typing import Any
 
 from . import __version__
@@ -62,8 +63,13 @@ EXAMPLES = {
     "search": [
         'devkit search "organizationId" backend/src',
         'devkit search "use[A-Z].*Products" frontend --regex --json',
+        'devkit search "world-countries" frontend/src --timings --json',
     ],
-    "find": ['devkit find "invoice"', 'devkit find "product.*\\.api\\.ts$" --regex'],
+    "find": [
+        'devkit find "invoice"',
+        "devkit find customers --type dir --app erp",
+        'devkit find "product.*\\.api\\.ts$" --regex',
+    ],
     "tree": ["devkit tree --depth 3", "devkit tree frontend/src --dirs-only"],
     "symbols": [
         "devkit symbols backend/src --exported-only",
@@ -394,13 +400,20 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
     search.add_argument("path", nargs="?", default=".", help="Directory/file relative to project root")
     search.add_argument("--regex", action="store_true", help="Interpret query as a regular expression")
     search.add_argument(
+        "--timings",
+        action="store_true",
+        help="Report measured setup/discovery/read/match timings and bytes read; no query contents",
+    )
+    search.add_argument(
         "--context", type=bounded_int(0, 100), default=0, help="Surrounding lines (default: 0)"
     )
     search.add_argument(
         "--glob", action="append", default=[], help="Restrict paths by glob; repeat for alternatives"
     )
     find = add(subs, "find", "Find paths by smart-case substring or regular expression.")
-    find.add_argument("pattern", help="Path substring or regex")
+    find.add_argument(
+        "pattern", help="Literal path substring (files and directories), not a glob; or --regex"
+    )
     find.add_argument("path", nargs="?", default=".", help="Directory/file relative to project root")
     find.add_argument("--regex", action="store_true", help="Interpret pattern as a regular expression")
     find.add_argument(
@@ -711,6 +724,9 @@ def search(project: Project, args: argparse.Namespace) -> list[dict[str, Any]]:
     result = []
     project.coverage.start("text")
     selected = []
+    timings = {"discovery_ms": 0.0, "read_ms": 0.0, "match_ms": 0.0, "bytes_read": 0}
+    measured = getattr(args, "timings", False)
+    started = time.perf_counter() if measured else 0
     for path in project.entries(args.path):
         if args.glob and not any(
             fnmatch.fnmatchcase(project.rel(path), g) or fnmatch.fnmatchcase(path.name, g) for g in args.glob
@@ -719,11 +735,35 @@ def search(project: Project, args: argparse.Namespace) -> list[dict[str, Any]]:
         else:
             selected.append(path)
     project.coverage.details["search_candidate_files"] = len(selected)
+    if measured:
+        timings["discovery_ms"] = (time.perf_counter() - started) * 1000
+        project.coverage.details.setdefault("search_timings", {}).update(timings)
+        timings = project.coverage.details["search_timings"]
     # Stop after one extra result: that is sufficient to report truncation honestly.
     for path in selected:
         relative = project.rel(path)
-        content = project.text(path)
+        started = time.perf_counter() if measured else 0
+        content = project.text(path, cache=False, stats=timings if measured else None)
+        if measured:
+            timings["read_ms"] += (time.perf_counter() - started) * 1000
         if content is None:
+            continue
+        started = time.perf_counter() if measured else 0
+        # Literal matches cannot depend on anchors/lookarounds. A whole-file
+        # rejection avoids splitting and one Python regex call per line, while
+        # preserving Python's exact Unicode IGNORECASE semantics. Regex queries
+        # retain their original per-line semantics, including empty matches.
+        if not args.regex and (
+            (
+                args.query.lower() not in content.lower()
+                if pattern.flags & re.IGNORECASE
+                else args.query not in content
+            )
+            if args.query.isascii() and content.isascii()
+            else pattern.search(content) is None
+        ):
+            if measured:
+                timings["match_ms"] += (time.perf_counter() - started) * 1000
             continue
         lines = content.splitlines()
         for index, line in enumerate(lines):
@@ -746,8 +786,12 @@ def search(project: Project, args: argparse.Namespace) -> list[dict[str, Any]]:
                     }
                 )
                 if len(result) > args.max_results:
+                    if measured:
+                        timings["match_ms"] += (time.perf_counter() - started) * 1000
                     project.coverage.gap("search_result_limit", relative, stage="text", line=index + 1)
                     return result
+        if measured:
+            timings["match_ms"] += (time.perf_counter() - started) * 1000
     project.coverage.finish("text")
     return result
 
@@ -760,11 +804,18 @@ def find(project: Project, args: argparse.Namespace) -> list[dict[str, Any]]:
     if args.type != "file" and not args.extension:
         paths.extend(project.entries(args.path, directories=True))
     extensions = {"." + ext.lstrip(".").casefold() for ext in args.extension}
-    return [
+    result = [
         {"path": project.rel(p), "type": "dir" if p.is_dir() else "file"}
         for p in sorted(paths)
         if pattern.search(project.rel(p)) and (not extensions or p.suffix.casefold() in extensions)
     ]
+    if not result and not args.regex and any(char in args.pattern for char in "*?"):
+        project.warnings.append(
+            "find matches literal path substrings, not globs; wildcard characters are literal. "
+            "For paths containing customers, use 'devkit find customers'; "
+            "add --type dir for directories, or use --regex for regular expressions."
+        )
+    return result
 
 
 def tree(project: Project, args: argparse.Namespace) -> dict[str, Any]:
@@ -1029,6 +1080,7 @@ def bound_output(result: dict[str, Any], maximum: int, output) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    entered = time.perf_counter()
     argv = list(sys.argv[1:] if argv is None else argv)
     json_mode = "--json" in argv
     # JSON escapes preserve source text on legacy Windows/ASCII output streams.
@@ -1093,7 +1145,11 @@ def main(argv: list[str] | None = None) -> int:
         else:
             project = context(args.root, args.config, args.app)
         project.use_cache = not getattr(args, "no_cache", False)
+        if args.command == "search" and args.timings:
+            coverage.details["search_timings"] = {"setup_ms": (time.perf_counter() - entered) * 1000}
         data, status = execute(project, args)
+        if args.command == "search" and args.timings:
+            coverage.details["search_timings"]["through_search_ms"] = (time.perf_counter() - entered) * 1000
         original_analysis = data if args.command == "analyze" else None
         data, truncation = limit_data(data, args.max_results)
         if args.command == "tree" and data["truncated"]:
@@ -1141,6 +1197,11 @@ def main(argv: list[str] | None = None) -> int:
                 + "\n".join("Warning: " + w for w in result["warnings"])
                 + ("\n" + coverage_line(result["coverage"]) if coverage else "")
                 + (
+                    "\nSearch timings: " + json.dumps(coverage.details["search_timings"])
+                    if args.command == "search" and args.timings
+                    else ""
+                )
+                + (
                     "\nResults truncated; increase --max-results / --max-output-chars or narrow the query."
                     if result["truncated"]
                     else ""
@@ -1176,6 +1237,8 @@ def main(argv: list[str] | None = None) -> int:
                 print("Warning: " + warning, file=sys.stderr)
             if coverage:
                 print(coverage_line(result["coverage"]), file=sys.stderr)
+            if args.command == "search" and args.timings:
+                print("Search timings: " + json.dumps(coverage.details["search_timings"]), file=sys.stderr)
         return status
     except BrokenPipeError:
         return 0

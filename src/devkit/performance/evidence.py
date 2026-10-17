@@ -87,7 +87,7 @@ def load(project, raw, expected=None):
     )
     if not isinstance(data, dict):
         invalid("capture", "expected an object")
-    if data.get("capture_version") == "1.0":
+    if data.get("capture_version") in ("1.0", "1.1"):
         from .capture import load as load_database
 
         data, path = load_database(project, raw)
@@ -101,15 +101,22 @@ def load(project, raw, expected=None):
             invalid("capture", "expected capture 2.0, a V8 CPU profile or a V8 heap snapshot")
         data = {"capture_version": "native", "kind": kind, field: data, "metadata": None}
     else:
-        choice(data["capture_version"], "capture_version", {"2.0"})
+        choice(data["capture_version"], "capture_version", {"2.0", "2.1"})
         kind = choice(data.get("kind"), "kind", {"runtime", "memory", "cache"})
         fields = {
             "runtime": ("cpu_profile", "event_loop", "gc"),
             "memory": ("heap_snapshot", "process_samples"),
             "cache": ("caches",),
         }[kind]
-        obj(data, "capture", ("capture_version", "kind", "metadata"), (*fields, "sources"))
+        required = ("capture_version", "kind", "metadata")
+        if data["capture_version"] == "2.1":
+            required += ("collection",)
+        obj(data, "capture", required, (*fields, "sources"))
         metadata(data["metadata"])
+        if data["capture_version"] == "2.1":
+            from .collection import validate_collection
+
+            validate_collection(data)
         seen = set()
         for row in rows(data.get("sources", []), "sources"):
             obj(row, "sources[]", ("id", "location"))
@@ -151,6 +158,9 @@ class Report:
         self.units, self._gaps = set(), set()
         self.locations = {r["id"]: r["location"] for r in capture.get("sources", [])}
         self.source_cache, self.source_bytes = {}, 0
+        from .collection import report_collection
+
+        report_collection(self, capture)
         if not self.meta:
             self.gap(
                 "metadata_unavailable",
@@ -170,6 +180,10 @@ class Report:
             self.project.coverage.record("performance_" + state, self.prefix + self.kind + ":" + str(value))
 
     def metric(self, identifier, value, unit, direction="lower", **extra):
+        from .collection import incomplete
+
+        if incomplete(self.capture):
+            extra["comparable"] = False
         if value is not None:
             self.metrics.append(
                 {"id": identifier, "value": value, "unit": unit, "direction": direction, **extra}
@@ -226,6 +240,7 @@ class Report:
             "performance": self.kind,
             "capture_version": self.capture["capture_version"],
             "metadata": self.meta,
+            **({"collection": self.capture["collection"]} if "collection" in self.capture else {}),
             **data,
             "metrics": self.metrics,
             "findings": self.findings,

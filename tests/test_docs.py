@@ -19,6 +19,8 @@ def test_docs_root_contains_only_directories():
         "FEEDBACK.md",
         "PERFORMANCE.md",
         "PERFORMANCE-RUNTIME.md",
+        "PERFORMANCE-COLLECTOR.md",
+        "SEARCH.md",
         "PLAN.md",
     } <= {path.name for path in (DOCS / "guides").glob("*.md")}
 
@@ -44,6 +46,8 @@ def test_analysis_templates_describe_capabilities_without_tool_preference(name):
         assert f"performance {command} --input <capture" in content
     assert "performance compare --before <capture> --after <capture>" in content
     assert "--fail-on-regression" in content
+    assert "--timings" in content
+    assert "collector.mjs" in content
     assert "plan archive <conversation-id>" in content
     assert ".gemini/antigravity-ide/brain/<conversation-id>/" in content
     assert ".gemini/antigravity/brain/" not in content

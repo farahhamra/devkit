@@ -3,6 +3,23 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
+  node-collector:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['20', '24']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - run: uv sync --locked --extra dev
+      - run: node --test integrations/node/collector.test.mjs
+      - run: uv run --no-sync pytest tests/test_collector.py -q
   test:
     strategy:
       matrix:

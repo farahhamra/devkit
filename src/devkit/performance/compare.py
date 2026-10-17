@@ -110,6 +110,10 @@ def compare(project, args):
         project, {"capture_version": "comparison", "metadata": after.get("metadata")}, "compare", "compare:"
     )
     reasons = compatibility(before.get("metadata"), after.get("metadata"), kind)
+    from .collection import incomplete
+
+    if incomplete(before) or incomplete(after):
+        reasons.append({"field": "collection", "reason": "incomplete"})
     for issue in reasons:
         report.gap(
             "comparison_incompatible",

@@ -1,0 +1,9 @@
+{
+  "name": "@electroerp/devkit-collector",
+  "version": "0.13.0",
+  "private": true,
+  "type": "module",
+  "exports": "./collector.mjs",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test collector.test.mjs" }
+}

@@ -113,6 +113,8 @@ devkit module check all
 
 Smart case means lowercase queries ignore case; queries containing uppercase letters match case. Content search is line-oriented and produces one result per match. Binary and non-UTF-8 content is skipped. Hidden files are included unless ignored. No shell glob expansion is required; quote patterns and queries.
 
+`find` uses literal **path substrings**, including directories, not globs: `devkit find customers --type dir`. Unmatched `*`/`?` literals get a hint without changing matching or exit status. `search --timings` adds measured setup/discovery/read/match timings and bytes read while retaining the same ignore/coverage policy. See [search diagnostics and benchmarks](docs/guides/SEARCH.md).
+
 ## Analyze a source file
 
 ```powershell
@@ -155,6 +157,8 @@ devkit audit duplicates frontend/src --app erp --json
 Findings retain source locations and full summary counts. Unknown policy, incomplete engine scans and missing advisory data remain visible in coverage. `--fail-on` controls finding severity gates, while `--strict` also fails incomplete coverage. Static candidates do not prove runtime security or that code can safely be deleted. See [audit installation, policy and output](docs/guides/AUDIT.md). Performance profiling is not included.
 
 ## Performance evidence
+
+An optional, disabled-by-default [Node collector](docs/guides/PERFORMANCE-COLLECTOR.md) now ships in `integrations/node/` and installed wheels. It requires separate, explicit local/staging app integration and collection authorization; it does not start ElectroERP or install adapters automatically. Runtime/memory, manual Prisma/request observations and actual backend-cache probes export local files for the commands below. Heap capture is separately gated. Collection lifecycle and dropped measurements are explicit in backward-compatible input revisions 1.1/2.1; completed collection is not a guarantee of complete analysis coverage.
 
 ```powershell
 devkit performance database --input diagnostics/performance/capture.json --app erp --json

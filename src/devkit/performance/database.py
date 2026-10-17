@@ -50,6 +50,9 @@ class DatabaseAnalysis:
         self.plan_count = 0
         self.indexes = []
         self.query_sources = {}
+        from .collection import report_collection
+
+        report_collection(self, capture)
 
     def gap(self, code, subject, message):
         if (code, subject) not in self._unknown_keys:
@@ -550,8 +553,9 @@ class DatabaseAnalysis:
         ]
         return {
             "performance": "database",
-            "capture_version": "1.0",
+            "capture_version": self.capture["capture_version"],
             "metadata": self.capture["metadata"],
+            **({"collection": self.capture["collection"]} if "collection" in self.capture else {}),
             "queries": report,
             "requests": request_rows,
             "indexes": indexes,

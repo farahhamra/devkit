@@ -220,9 +220,14 @@ def validate(data):
         data,
         "capture",
         ("capture_version", "metadata", "queries"),
-        ("requests", "indexes", "indexes_complete"),
+        (
+            "requests",
+            "indexes",
+            "indexes_complete",
+            *(("collection",) if isinstance(data, dict) and data.get("capture_version") == "1.1" else ()),
+        ),
     )
-    choice(data["capture_version"], "capture_version", {"1.0"})
+    choice(data["capture_version"], "capture_version", {"1.0", "1.1"})
     meta = obj(
         data["metadata"],
         "metadata",
@@ -260,6 +265,12 @@ def validate(data):
     runtime = obj(meta.get("runtime", {}), "metadata.runtime", (), ("node", "prisma_client"))
     for name, version in runtime.items():
         string(version, "metadata.runtime." + name, r"[0-9][A-Za-z0-9_.+-]{0,63}")
+    if data["capture_version"] == "1.1":
+        if "collection" not in data:
+            invalid("capture", "collection is required for version 1.1")
+        from .collection import validate_collection
+
+        validate_collection(data)
     requests = {}
     for i, request in enumerate(rows(data.get("requests", []), "requests")):
         where = f"requests[{i}]"

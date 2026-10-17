@@ -11,6 +11,10 @@ Use the installed `devkit` Python command. It is not a Node script. If it is una
 
 ## Locate and scope the project
 
+`search --timings` adds setup/discovery/read/match timings and bytes read to coverage details without changing ignore/coverage behavior; interpreter startup and output rendering are excluded. IDE backgrounding does not mean a command failed. `find customers --type dir` finds directory path substrings; `find "*customers*"` searches literal asterisks and receives a hint if unmatched. No pattern rewriting occurs; `[id]` remains literal.
+
+The optional `integrations/node/collector.mjs` helper is separate from Devkit's offline performance commands. It is disabled by default and needs explicit local/staging application integration and runtime authorization. It can export Node runtime/memory observations, logical Prisma/request timings and configured backend-cache probes; heap capture has a separate approval gate and may expose secrets or pause the process. No app startup, production attachment, workload generation or automatic ElectroERP adapter installation occurs. Collection versions 1.1/2.1 carry lifecycle/drops/windows; incomplete collection blocks comparison and real partial windows remain partial. Output stays in local Git-ignored `diagnostics/performance/`, subject to Devkit's existing ignore policy. No backend cache is inferred from browser TanStack Query. See `docs/guides/PERFORMANCE-COLLECTOR.md` in the Devkit checkout.
+
 Run from the ElectroERP root, or supply `--root <ElectroERP-root>`. Analysis paths are relative to that root; plan archiving reads the current user's external Antigravity brain. With a nested Devkit checkout, supply its actual manifest using `--config .agents/devkit/electroerp.yaml` when needed. `DEVKIT_CONFIG_DIR` overrides the directory holding the single `.ignore` and feedback/cache storage; it does not relocate agent-sync or plan-archive targets. Do not assume nested Git boundaries select the intended project.
 
 Use `--app erp`, `hub` or `manager` for app-specific analysis; `all` is for cross-app scope. Roots/schemas come from the live manifest. Hub/Manager may be unconfigured; absent roots do not establish coverage. Help, feedback, agent sync and plan archiving do not require source indexing or valid YAML. Sync and plan archiving are project-wide, independent of app/configuration scope.
@@ -26,8 +30,8 @@ Use `devkit help <command...> --json` for the authoritative options of the insta
 | `devkit doctor` | Read-only runtime/parser/configuration/storage/agent-template diagnostics; `--app` scopes configured-path checks |
 | `devkit config inspect` | Effective settings and origins, root/manifest/ignore/storage selection; no source scan or initialization |
 | `devkit config validate` | Read-only global manifest structure plus selected-app path/ignore/alias checks; no Prisma syntax validation |
-| `devkit search <query> [path]` | Smart-case literal content search; `--regex`, `--glob`, `--context` |
-| `devkit find <pattern> [path]` | Substring path search; `--regex`, `--type`, `--extension` |
+| `devkit search <query> [path]` | Smart-case literal content search; `--regex`, `--glob`, `--context`, opt-in `--timings` |
+| `devkit find <pattern> [path]` | Literal path substring search, including directories, not globs; `--regex`, `--type`, `--extension` |
 | `devkit tree [path]` | Ignore-aware tree; `--depth`, `--dirs-only` |
 | `devkit symbols [path]` | Targeted JS/TS/JSX/TSX definitions; `--name`, `--kind`, `--exported-only` |
 | `devkit analyze <file>` | Numbered source and structured evidence with exact spans/lexical hierarchy; `--symbol`, opt-in `--with-context` |
