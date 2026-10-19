@@ -21,6 +21,7 @@ def test_docs_root_contains_only_directories():
         "PERFORMANCE-RUNTIME.md",
         "PERFORMANCE-COLLECTOR.md",
         "SEARCH.md",
+        "BROWSER.md",
         "PLAN.md",
     } <= {path.name for path in (DOCS / "guides").glob("*.md")}
 
@@ -47,6 +48,9 @@ def test_analysis_templates_describe_capabilities_without_tool_preference(name):
     assert "performance compare --before <capture> --after <capture>" in content
     assert "--fail-on-regression" in content
     assert "--timings" in content
+    for command in ("open", "navigate", "inspect", "screenshot", "close"):
+        assert f"browser {command}" in content
+    assert "--token-env" in content and "--save-auth" in content
     assert "collector.mjs" in content
     assert "plan archive <conversation-id>" in content
     assert ".gemini/antigravity-ide/brain/<conversation-id>/" in content
@@ -55,7 +59,7 @@ def test_analysis_templates_describe_capabilities_without_tool_preference(name):
         assert f"audit {command} [path]" in content
     assert "--symbol" in content and "--with-context" in content
     assert not re.search(
-        r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query|audit|performance)\b",
+        r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query|audit|performance|browser)\b",
         content,
         re.IGNORECASE,
     )

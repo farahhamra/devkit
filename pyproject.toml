@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "electroerp-devkit"
-version = "0.13.0"
+version = "0.14.0"
 description = "Project-aware code discovery for ElectroERP and coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.3,<10", "ruff>=0.11,<1", "ast-grep-cli>=0.50,<0.51"]
 query = ["ast-grep-cli>=0.50,<0.51"]
+browser = ["playwright>=1.58,<2"]
 
 [project.scripts]
 devkit = "devkit.cli:main"

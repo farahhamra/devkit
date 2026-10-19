@@ -19,7 +19,18 @@ python -m pip install ".[query]"
 # Alternatively: uv tool install ".[query]" or pipx install ".[query]"
 ```
 
-The other commands also work without this extra. `devkit doctor` reports engine availability without executing it; `query` verifies the executable's version before use. An existing compatible `ast-grep` on PATH is supported too.
+Commands other than `query` work without the query extra. `devkit doctor` reports engine availability without executing it; `query` verifies the executable's version before use. An existing compatible `ast-grep` on PATH is supported too.
+
+The optional ERP browser addon uses Playwright with **visible Google Chrome by default**, in an isolated session separate from your personal profile:
+
+```powershell
+# From INSIDE the Devkit checkout, not the ElectroERP root:
+python -m pip install --upgrade ".[query,browser]"
+# Chrome must already be installed. Alternatively, explicitly install Chromium:
+python -m playwright install chromium
+```
+
+The Chromium download is only needed with `--channel chromium`. Other commands do not require Playwright or a browser. See the [browser guide](docs/guides/BROWSER.md).
 
 For development:
 
@@ -61,6 +72,11 @@ Analysis commands write the configuration directory, missing `.ignore`, and disp
 | Command | Purpose |
 | --- | --- |
 | `devkit help [command...]` | Usage, arguments, flags, examples and JSON command catalog |
+| `devkit browser open <url> --session <name>` | Visible isolated ERP Chrome session; manual login, `--token-env` or `--auth-state`; optional `--headless` |
+| `devkit browser navigate <url\|path> --session <name>` | Same-origin navigation in the existing session; bounded `--wait-for` |
+| `devkit browser inspect --session <name>` | Visible semantic elements with snapshot-scoped node references and bounds |
+| `devkit browser screenshot --session <name>` | Local PNG: viewport, `--full-page`, `--node` or `--selector`; optional new `--output` filename |
+| `devkit browser close --session <name>` | Close without ERP logout; optional explicit `--save-auth <new-name>` |
 | `devkit plan archive <conversation-id>` | Local numbered Antigravity plan/task copies; verify both then clear originals; `--dry-run` previews |
 | `devkit doctor` | Read-only installation/parser/configuration/storage/agent-template checks and remediation |
 | `devkit config inspect` | Effective merged settings, default/override origins, ignore rules and storage paths |
@@ -155,6 +171,21 @@ devkit audit duplicates frontend/src --app erp --json
 ```
 
 Findings retain source locations and full summary counts. Unknown policy, incomplete engine scans and missing advisory data remain visible in coverage. `--fail-on` controls finding severity gates, while `--strict` also fails incomplete coverage. Static candidates do not prove runtime security or that code can safely be deleted. See [audit installation, policy and output](docs/guides/AUDIT.md). Performance profiling is not included.
+
+## ERP browser sessions
+
+Run from the **ElectroERP root** (or supply `--root`), after starting the app yourself:
+
+```powershell
+devkit browser open http://localhost:3000/auth/login --api-origin http://localhost:5000 --session erp
+# Log in yourself in the visible isolated Chrome window, then:
+devkit browser navigate /core/products --session erp --wait-for main --json
+devkit browser inspect --session erp --json
+devkit browser screenshot --session erp --full-page --output products.png --json
+devkit browser close --session erp
+```
+
+Separate commands share a background browser worker. Artifacts stay in `.agents/.devkit-browser/`, with Git exclusions, source-analysis exclusions and private account permissions. Captures may contain sensitive data. Browser commands run application JavaScript and are **not** covered by static analysis's read-only guarantee. No app startup, automated clicks/form submissions, arbitrary-JavaScript command, remote-debugging attachment or Hub integration is included. Read [authentication, readiness, permissions and lifecycle limits](docs/guides/BROWSER.md).
 
 ## Performance evidence
 

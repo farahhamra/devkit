@@ -292,7 +292,11 @@ class Project(Configuration):
     def exclusion(self, path: Path, directory: bool = False) -> str | None:
         # Durable reports may contain diagnostics. They are internal state, not
         # project source, and must not recursively feed searches/module analysis.
-        if _inside(path, self.feedback_directory) or _inside(path, self.root / ".agents/.devkit-sync"):
+        if (
+            _inside(path, self.feedback_directory)
+            or _inside(path, self.root / ".agents/.devkit-sync")
+            or _inside(path, self.root / ".agents/.devkit-browser")
+        ):
             return "internal_storage"
         relative = self.rel(path) + ("/" if directory else "")
         return "ignore_rule" if self.ignore.match_file(relative) else None

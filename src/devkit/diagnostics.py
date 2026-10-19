@@ -560,6 +560,22 @@ class Diagnostics:
         audit_path = os.pathsep.join(
             filter(None, [os.environ.get("DEVKIT_AUDIT_BIN_DIRS"), str(scripts), os.environ.get("PATH")])
         )
+        try:
+            browser_version = metadata.version("playwright")
+        except metadata.PackageNotFoundError:
+            browser_version = None
+        self.add(
+            "engine.playwright",
+            "pass" if browser_version else "warning",
+            "Optional Playwright package installed; Chrome/display/runtime availability is not tested"
+            if browser_version
+            else "Optional ERP browser addon is unavailable",
+            None
+            if browser_version
+            else 'From the Devkit checkout run python -m pip install ".[browser]"; see docs/guides/BROWSER.md.',
+            version=browser_version,
+            executed=False,
+        )
         for engine in ("semgrep", "osv-scanner", "node", "knip", "eslint", "jscpd"):
             located = shutil.which(engine, path=audit_path)
             self.add(

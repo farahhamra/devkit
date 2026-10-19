@@ -21,6 +21,20 @@ from .project import DevkitError, Project
 from .schema import Schema
 
 EXAMPLES = {
+    "browser open": [
+        "devkit browser open http://localhost:3000 --api-origin http://localhost:5000 --session erp",
+        "devkit browser open http://localhost:3000/core/products --api-origin http://localhost:5000 --token-env ELECTROERP_TOKEN --wait-for main --session erp --json",
+    ],
+    "browser navigate": ["devkit browser navigate /core/products --session erp --wait-for main --json"],
+    "browser inspect": ["devkit browser inspect --session erp --json"],
+    "browser screenshot": [
+        "devkit browser screenshot --session erp --full-page --output products.png --json",
+        "devkit browser screenshot --session erp --selector '#reports-summary' --json",
+    ],
+    "browser close": [
+        "devkit browser close --session erp",
+        "devkit browser close --session erp --save-auth local-login",
+    ],
     "plan archive": [
         "devkit plan archive <conversation-id> --dry-run",
         "devkit plan archive <conversation-id> --root /path/to/ElectroERP --json",
@@ -114,6 +128,11 @@ EXAMPLES = {
 }
 
 OUTPUTS = {
+    "browser open": "Isolated ERP browser session, redacted current URL, observed authentication/readiness, exact allowed origins and idle timeout",
+    "browser navigate": "Current page and bounded readiness evidence; login/permission/subscription/organization gates are not success",
+    "browser inspect": "Bounded visible main-frame semantic elements, labels, bounds and snapshot-scoped node references; no input/storage values or raw HTML",
+    "browser screenshot": "Local Git-ignored PNG path, size and capture mode; pixels may contain sensitive application data",
+    "browser close": "Session closed without application logout; optionally save origin-bound ERP token state under a new private local name",
     "plan archive": "Shared archive index, plan/task source and destination paths, verification and source-clearing status; no document contents",
     "performance database": "Offline query timing/count rankings by measurement stream, MySQL plan estimates, Prisma/module mappings, index candidates, verified available source ranges and explicit coverage gaps",
     "performance runtime": "V8 sampled self/inclusive CPU estimates, event-loop histograms, GC event intervals and explicit coverage gaps; no live profiling",
@@ -158,6 +177,10 @@ OUTPUTS = {
 
 class Parser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
+        if getattr(self, "sensitive_arguments", False):
+            raise DevkitError(
+                "Invalid browser arguments (values omitted for credential safety). Run devkit help browser <command> for usage; tokens are accepted only via --token-env NAME."
+            )
         raise DevkitError(message)
 
 
@@ -229,7 +252,9 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
         if key in OUTPUTS:
             epilog += "\nOutput: " + OUTPUTS[key]
         epilog += (
-            "\nFormats: readable text or --json. Read-only: no source scan, storage initialization, network, database connection or automatic repair. --app scopes configured-path checks, not global manifest structure."
+            "\nFormats: readable text or --json. ERP only; explicit local browser session, not static source analysis. Navigation runs app JavaScript and may cause writes/network activity. Screenshots and optional authentication stay under --root/.agents/.devkit-browser/. No automatic app startup or login."
+            if key.startswith("browser")
+            else "\nFormats: readable text or --json. Read-only: no source scan, storage initialization, network, database connection or automatic repair. --app scopes configured-path checks, not global manifest structure."
             if key == "doctor" or key.startswith("config")
             else "\nFormats: readable text or --json. Scope: fixed agent files under --root, independent of --config/--app/--no-cache. Templates are bundled; no network access or source indexing."
             if key.startswith("agents")
@@ -240,7 +265,9 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
             else "\nFormats: readable text (default) or --json. Scope: project root and --app; only Devkit .ignore applies. Analysis includes measured coverage (stages, counts, gaps and exclusions); complete processing is not runtime proof."
         )
         epilog += (
-            "\nExit codes: 0 report generated (findings/unknowns may remain), 1 incomplete --strict performance analysis or comparison --fail-on-regression gate, 2 invalid/unsafe capture or configuration/I/O failure. Offline evidence only: no SQL, instrumentation, profiling or load generation."
+            "\nExit codes: 0 operation completed (read readiness/limitations), 1 navigation/readiness/authentication gate or timeout, 2 invalid input, unavailable session/addon/browser, unsafe storage or capture failure. Closing never calls ERP logout."
+            if key.startswith("browser")
+            else "\nExit codes: 0 report generated (findings/unknowns may remain), 1 incomplete --strict performance analysis or comparison --fail-on-regression gate, 2 invalid/unsafe capture or configuration/I/O failure. Offline evidence only: no SQL, instrumentation, profiling or load generation."
             if key.startswith("performance")
             else "\nExit codes: 0 no finding gate triggered (inspect coverage/unknowns), 1 policy violation, finding at --fail-on severity or incomplete --strict audit, 2 invalid policy, missing engine or scanner failure. Static evidence is not runtime security proof; no automatic fixes."
             if key.startswith("audit")
@@ -265,6 +292,103 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
 
     help_parser = add(subs, "help", "List commands or show detailed command help.")
     help_parser.add_argument("topic", nargs="*", help="Command path, such as module inspect")
+    browsers = add(
+        subs, "browser", "Operate an isolated, shared ERP Chrome session using optional Playwright."
+    )
+    bsubs = browsers.add_subparsers(dest="action")
+    for action, description in (
+        ("open", "Open a visible isolated ERP browser; explicit --headless is optional."),
+        ("navigate", "Navigate within the session's exact ERP frontend origin."),
+        ("inspect", "Inspect visible page structure and snapshot-scoped element references."),
+        ("screenshot", "Save a viewport, full-page or single-element PNG locally."),
+        ("close", "Close the isolated browser without logging out of ERP."),
+    ):
+        command = add(bsubs, action, description, "browser")
+        command.allow_abbrev = False  # --token must never silently mean --token-env.
+        command.add_argument(
+            "--session",
+            required=True,
+            help="Project-local lowercase session name; no implicit shared default",
+        )
+        command.add_argument(
+            "--timeout",
+            type=bounded_int(1, 60),
+            default=15,
+            help="Timeout per navigation/readiness/capture phase in seconds (default: 15)",
+        )
+        if action in {"open", "navigate"}:
+            command.add_argument(
+                "url", help="ERP URL; navigate also accepts a path relative to the session origin"
+            )
+        if action != "close":
+            command.add_argument(
+                "--wait-for", help="Unique visible CSS/Playwright readiness selector; no network-idle wait"
+            )
+        if action == "open":
+            command.add_argument(
+                "--headless", action="store_true", help="Hide the browser window (default: visible)"
+            )
+            command.add_argument(
+                "--channel",
+                choices=["chrome", "chromium"],
+                default="chrome",
+                help="Installed Google Chrome (default), or separately installed Playwright Chromium",
+            )
+            command.add_argument(
+                "--executable",
+                help="Explicit trusted Chrome/Chromium executable path; overrides channel lookup",
+            )
+            command.add_argument(
+                "--api-origin",
+                help="Exact ERP API origin if different from the frontend, e.g. http://localhost:5000",
+            )
+            command.add_argument(
+                "--allow-origin",
+                action="append",
+                default=[],
+                help="Additional exact asset origin; repeatable. Navigation still stays on the frontend",
+            )
+            auth = command.add_mutually_exclusive_group()
+            auth.add_argument(
+                "--token-env",
+                help="Environment variable NAME containing an ERP token; never put the token in arguments",
+            )
+            auth.add_argument(
+                "--auth-state", help="Previously saved local auth name; exact frontend origin must match"
+            )
+            command.add_argument(
+                "--organization-id",
+                help="Expected existing ERP organization ID; checks state, never injects tenant data",
+            )
+            command.add_argument(
+                "--width", type=bounded_int(320, 3840), default=1440, help="Viewport width (default: 1440)"
+            )
+            command.add_argument(
+                "--height", type=bounded_int(240, 2160), default=900, help="Viewport height (default: 900)"
+            )
+            command.add_argument(
+                "--idle-timeout",
+                type=bounded_int(60, 86400),
+                default=1800,
+                help="Close after this many seconds without CLI commands (default: 1800); manual activity does not renew it",
+            )
+        if action == "screenshot":
+            mode = command.add_mutually_exclusive_group()
+            mode.add_argument(
+                "--full-page", action="store_true", help="Capture the scrollable page instead of the viewport"
+            )
+            mode.add_argument(
+                "--node", help="Current node reference from browser inspect; DOM changes invalidate it"
+            )
+            mode.add_argument("--selector", help="Unique CSS/Playwright element selector")
+            command.add_argument(
+                "--output", help="New .png filename in .agents/.devkit-browser/screenshots/; never overwrite"
+            )
+        if action == "close":
+            command.add_argument(
+                "--save-auth",
+                help="Explicitly save ERP token under a NEW local auth name before closing; no cookies/tenant state",
+            )
     performances = add(subs, "performance", "Analyze explicitly supplied performance evidence offline.")
     psubs = performances.add_subparsers(dest="action")
     database = add(
@@ -670,7 +794,9 @@ def catalog(registry: dict[str, Parser], topic: str = "") -> list[dict[str, Any]
                 "arguments": options,
                 "examples": EXAMPLES.get(name, []),
                 "output": OUTPUTS.get(name, "Subcommand group"),
-                "scope": "Read-only configuration/install inspection; selected app paths, global manifest structure"
+                "scope": "ERP-only live isolated browser and project-local private artifacts; not static analysis or a read-only runtime guarantee"
+                if name.startswith("browser")
+                else "Read-only configuration/install inspection; selected app paths, global manifest structure"
                 if name == "doctor" or name.startswith("config")
                 else "Project-wide fixed agent files under --root; ignores app/config/cache selection"
                 if name.startswith("agents")
@@ -687,7 +813,9 @@ def catalog(registry: dict[str, Parser], topic: str = "") -> list[dict[str, Any]
                     else "Archived/already archived or valid preview"
                     if name.startswith("plan")
                     else "Success (including no matches)",
-                    "1": "Policy violation, finding at the selected severity threshold, or incomplete --strict audit"
+                    "1": "Navigation/readiness/authentication gate or timeout; inspect data before claiming a capture"
+                    if name.startswith("browser")
+                    else "Policy violation, finding at the selected severity threshold, or incomplete --strict audit"
                     if name.startswith("audit")
                     else "Incomplete --strict performance analysis or comparison --fail-on-regression gate"
                     if name.startswith("performance")
@@ -856,6 +984,10 @@ def execute(
     project: Project | FeedbackContext | AgentsContext | DiagnosticContext, args: argparse.Namespace
 ) -> tuple[Any, int]:
     command, action = args.command, getattr(args, "action", None)
+    if command == "browser":
+        from .browser import browser
+
+        return browser(project, args)
     if command == "performance":
         from .performance import performance
 
@@ -1090,6 +1222,10 @@ def main(argv: list[str] | None = None) -> int:
     coverage = None
     try:
         parser, registry = build_parser()
+        if "browser" in argv:
+            for key, item in registry.items():
+                if not key or key.startswith("browser"):
+                    item.sensitive_arguments = True
         args = parser.parse_args(argv)
         args.json = getattr(args, "json", False)
         args.max_results = getattr(args, "max_results", 100)
@@ -1113,6 +1249,7 @@ def main(argv: list[str] | None = None) -> int:
                     "audit",
                     "performance",
                     "plan",
+                    "browser",
                 }
                 and not args.action
             )
@@ -1138,6 +1275,10 @@ def main(argv: list[str] | None = None) -> int:
             "doctor": DiagnosticContext,
             "config": DiagnosticContext,
         }.get(args.command, Project)
+        if args.command == "browser":
+            from .browser import BrowserContext
+
+            context = BrowserContext
         if context is Project:
             coverage = Coverage()
             project = Project(args.root, args.config, args.app, coverage=coverage)

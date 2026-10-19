@@ -44,6 +44,8 @@ def main():
             assert f"performance {command} --input <capture" in content
         assert "performance compare --before <capture> --after <capture>" in content
         assert "plan archive <conversation-id>" in content
+        for command in ("open", "navigate", "inspect", "screenshot", "close"):
+            assert f"browser {command}" in content
         assert ".gemini/antigravity-ide/brain/<conversation-id>/" in content
         assert not re.search(
             r"\b(?:prefer|must use|always use)\b[^.\n]*\b(?:analyze|query)\b", content, re.IGNORECASE
@@ -72,6 +74,8 @@ def main():
             return json.loads(result.stdout)
 
         assert any(row["command"] == "devkit agents sync" for row in invoke("help")["data"])
+        assert len(invoke("help", "browser")["data"]) == 6
+        invoke("browser", "inspect", "--session", "missing", status=2)
         assert invoke("config", "inspect")["data"]["ignore"]["source"] == "bundled_defaults_not_created"
         assert invoke("config", "validate", status=1)["data"]["summary"]["fail"] > 0
         doctor = invoke("doctor", status=1)["data"]
