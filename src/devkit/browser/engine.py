@@ -9,6 +9,7 @@ import uuid
 from urllib.parse import urljoin, urlsplit
 
 from ..project import DevkitError
+from .diagnostics import Diagnostics
 from .policy import ORG_KEY, TOKEN_KEY, expired, origin, redact, safe_url, storage_state
 from .storage import write, write_json
 
@@ -71,6 +72,8 @@ class BrowserEngine:
         self.closed = False
         self.blocked_requests = 0
         self.api_denials = set()
+        self.started = time.monotonic()
+        self.diagnostics = Diagnostics(lambda: self.secrets)
         self.playwright = sync_playwright().start()
         self.browser = None
         self.context = None
@@ -95,6 +98,15 @@ class BrowserEngine:
             # The observer contains no credentials and does not re-inject login state.
             self.context.add_init_script(f"({OBSERVE})({json.dumps(self.key)})")
             self.page = self.context.new_page()
+            for event, kind in (
+                ("console", "console"),
+                ("pageerror", "error"),
+                ("request", "request"),
+                ("response", "response"),
+                ("requestfinished", "finished"),
+                ("requestfailed", "failed"),
+            ):
+                self.page.on(event, lambda value, kind=kind: self.diagnostics.observe(kind, value))
             # Playwright routing only handles the first URL of some redirect
             # chains. Intercept response headers via CDP as well, before Chrome
             # follows a Location header; never buffer SSE response bodies.
@@ -313,6 +325,37 @@ class BrowserEngine:
                 return result, 1
             self.page.wait_for_timeout(100)
 
+    def session_status(self, options):
+        """Observation, not a readiness gate: login pages/errors remain inspectable."""
+        data = {
+            "session": self.options["session"],
+            "session_health": "connected",
+            "url": safe_url(self.page.url),
+            "worker_responding": True,
+            "browser_connected": self.browser.is_connected(),
+            "page_open": not self.page.is_closed(),
+            "headless": self.options["headless"],
+            "window_visibility": "headless" if self.options["headless"] else "not_verified",
+            "uptime_seconds": round(time.monotonic() - self.started, 3),
+            "idle_timeout_seconds": self.options["idle_timeout"],
+        }
+        try:
+            data.update(self.status())
+        except self.error:
+            # Navigation may replace the execution context while observing it.
+            # A responding worker is not proof that app-state observation worked.
+            data.update(authentication="unknown", organization_id=None, readiness="observation_unavailable")
+        return data, 0
+
+    def diagnostic_report(self, stream, options):
+        # No DOM readiness/authentication gate, navigation, or localStorage read.
+        # Diagnostics must remain available on login and application-error pages.
+        return {
+            "session": self.options["session"],
+            "url": safe_url(self.page.url),
+            **self.diagnostics.report(stream, options),
+        }, 0
+
     def navigate(self, options):
         self.invalidate()
         self.api_denials.clear()
@@ -485,6 +528,10 @@ class BrowserEngine:
         try:
             if action == "ping":
                 return {"alive": True}, 0
+            if action == "status":
+                return self.session_status(options)
+            if action in {"console", "network"}:
+                return self.diagnostic_report(action, options)
             if action == "close":
                 if options.get("save_auth"):
                     self.save_auth(options["save_auth"])

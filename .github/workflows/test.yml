@@ -18,13 +18,13 @@ jobs:
       - run: uv run --no-sync python -m playwright install --with-deps chromium
       - name: Browser integration (Linux desktop via Xvfb)
         if: runner.os == 'Linux'
-        run: xvfb-run -a uv run --no-sync pytest tests/test_browser.py tests/test_browser_live.py -q
+        run: xvfb-run -a uv run --no-sync pytest tests/test_browser.py tests/test_browser_diagnostics.py tests/test_browser_live.py -q
         env:
           DEVKIT_TEST_BROWSER: '1'
           DEVKIT_TEST_BROWSER_HEADED: '1'
       - name: Browser integration (Windows)
         if: runner.os == 'Windows'
-        run: uv run --no-sync pytest tests/test_browser.py tests/test_browser_live.py -q
+        run: uv run --no-sync pytest tests/test_browser.py tests/test_browser_diagnostics.py tests/test_browser_live.py -q
         env:
           DEVKIT_TEST_BROWSER: '1'
           DEVKIT_TEST_BROWSER_HEADED: '1'

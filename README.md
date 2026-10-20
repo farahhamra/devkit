@@ -75,6 +75,9 @@ Analysis commands write the configuration directory, missing `.ignore`, and disp
 | `devkit browser open <url> --session <name>` | Visible isolated ERP Chrome session; manual login, `--token-env` or `--auth-state`; optional `--headless` |
 | `devkit browser navigate <url\|path> --session <name>` | Same-origin navigation in the existing session; bounded `--wait-for` |
 | `devkit browser inspect --session <name>` | Visible semantic elements with snapshot-scoped node references and bounds |
+| `devkit browser status --session <name>` | Session health, current page and observed login/organization state; no readiness gate |
+| `devkit browser console --session <name>` | Captured console messages and JavaScript errors; `--level`, `--since` |
+| `devkit browser network --session <name>` | Request failures, HTTP statuses and timings without headers/bodies; `--failed`, `--since` |
 | `devkit browser screenshot --session <name>` | Local PNG: viewport, `--full-page`, `--node` or `--selector`; optional new `--output` filename |
 | `devkit browser close --session <name>` | Close without ERP logout; optional explicit `--save-auth <new-name>` |
 | `devkit plan archive <conversation-id>` | Local numbered Antigravity plan/task copies; verify both then clear originals; `--dry-run` previews |

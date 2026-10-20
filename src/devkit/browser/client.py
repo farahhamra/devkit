@@ -8,6 +8,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import subprocess
 import sys
 import time
@@ -61,9 +62,17 @@ def request(record, action, options, *, timeout=40):
         if result.get("status") not in {0, 1} or not isinstance(result.get("data"), dict):
             raise DevkitError("Invalid browser worker response.")
         return result["data"], result["status"]
+    except ConnectionRefusedError:
+        raise DevkitError(
+            "No browser worker is listening at this session's local endpoint. It may have closed, expired, or been stopped by the IDE. Start a new session from your normal terminal and reuse the same project root and session name."
+        ) from None
+    except TimeoutError:
+        raise DevkitError(
+            "Browser worker did not respond before the deadline. It may be busy, or the IDE may block local connections; this does not prove the session stopped. Retry browser status after the current operation finishes."
+        ) from None
     except (OSError, http.client.HTTPException):
         raise DevkitError(
-            "Browser session is unavailable or timed out. A command may still be running; inspect before retrying. Use browser open to start a new session after it exits."
+            "Browser session connection failed. Check that the worker is still running and the IDE permits local connections; use browser status from the same project root."
         ) from None
     except (ValueError, UnicodeError):
         raise DevkitError("Browser worker returned invalid JSON; contents omitted.") from None
@@ -104,6 +113,15 @@ def validate_options(options):
     """Also called inside the worker: RPC options do not bypass CLI validation."""
     if type(options.get("timeout")) is not int or not 1 <= options["timeout"] <= 60:
         raise DevkitError("Browser timeout must be 1–60 seconds.")
+    if "since" in options and (type(options["since"]) is not int or not 0 <= options["since"] <= 2**53 - 1):
+        raise DevkitError("--since must be a nonnegative sequence number no greater than 9007199254740991.")
+    if "level" in options:
+        from .diagnostics import LEVELS
+
+        if options["level"] not in LEVELS:
+            raise DevkitError("Invalid console level; see devkit help browser console.")
+    if "failed" in options and type(options["failed"]) is not bool:
+        raise DevkitError("--failed must be a boolean flag.")
     for field in ("selector", "wait_for"):
         value = options.get(field)
         if value is not None and (not isinstance(value, str) or not 1 <= len(value) <= 1000):
@@ -174,8 +192,6 @@ def open_session(project, args, options, path):
         except DevkitError:
             # Do not trust PID files or kill unrelated processes. A bound endpoint
             # might be busy, so only a refused TCP connection proves it is stale.
-            import socket
-
             try:
                 with socket.create_connection(("127.0.0.1", existing["port"]), timeout=2):
                     raise DevkitError(
@@ -273,6 +289,9 @@ def browser(project, args):
             "full_page",
             "output",
             "save_auth",
+            "since",
+            "level",
+            "failed",
         }
     }
     validate_options(options)
@@ -299,7 +318,12 @@ def browser(project, args):
             )
         if args.action == "navigate":
             options["url"] = navigation(args.url, exact_origin(record["origin"]))
-        result = request(record, args.action, options, timeout=2 * options["timeout"] + 10)
+        timeout = (
+            options["timeout"]
+            if args.action in {"status", "console", "network"}
+            else 2 * options["timeout"] + 10
+        )
+        result = request(record, args.action, options, timeout=timeout)
         if args.action == "close" and result[0].get("closed"):
             safe(path).unlink()
         return result

@@ -166,7 +166,7 @@ def test_storage_rejects_links_and_conflicting_ignore(tmp_path):
 def test_browser_help_missing_session_and_wrong_app_do_not_initialize(tmp_path, capsys):
     assert main(["help", "browser", "--json"]) == 0
     help_data = json.loads(capsys.readouterr().out)["data"]
-    assert len(help_data) == 6 and all("read-only runtime guarantee" in row["scope"] for row in help_data)
+    assert len(help_data) == 9 and all("read-only runtime guarantee" in row["scope"] for row in help_data)
     assert not list(tmp_path.iterdir())
     assert main(["browser", "inspect", "--session", "erp", "--root", str(tmp_path), "--json"]) == 2
     assert "Unknown browser session" in capsys.readouterr().out

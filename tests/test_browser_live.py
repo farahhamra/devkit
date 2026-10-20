@@ -6,6 +6,7 @@ import base64
 import http.client
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -32,6 +33,16 @@ def website():
         def do_GET(self):
             path = self.path.split("?", 1)[0]
             self.server.requests.append(self.path)
+            if path == "/api/broken":
+                self.connection.shutdown(socket.SHUT_RDWR)
+                self.connection.close()
+                return
+            if path == "/api/not-found":
+                self.send_response(404)
+                self.send_header("X-Secret-Header", "never-show-response-header")
+                self.end_headers()
+                self.wfile.write(b"never-show-response-body")
+                return
             if path == "/api/denied":
                 self.send_response(403)
                 self.end_headers()
@@ -82,6 +93,22 @@ def website():
                 if path == "/fetch-redirect":
                     auth += """fetch('/api/redirect', {headers: {Authorization: 'Bearer ' + localStorage.getItem('electroerp_token')}})
                       .catch(() => {const e=document.createElement('p'); e.id='redirect-blocked'; e.textContent='Redirect blocked'; document.querySelector('main').appendChild(e);});"""
+                if path == "/diagnostics":
+                    auth += f"""document.addEventListener('DOMContentLoaded', async () => {{
+                      console.log('Diagnostic log'); console.info('Diagnostic info');
+                      console.warn('Diagnostic warning'); console.error('Diagnostic error');
+                      console.log('password=never-show-console-password');
+                      console.log({json.dumps(token)});
+                      console.log('https://user:never-show-url-password@localhost/path?secret=never-show-query#never-show-fragment');
+                      console.log({{password:'never-expand-object'}});
+                      setTimeout(() => {{ throw new Error('Uncaught diagnostic error password=never-show-error-password'); }}, 0);
+                      await fetch('/api/not-found?secret=never-show-network-query', {{headers: {{'X-Secret-Header':'never-show-request-header'}}}});
+                      await fetch('/api/broken').catch(() => {{}});
+                      const e=document.createElement('p'); e.id='diagnostics-ready'; document.querySelector('main').appendChild(e);
+                      e.textContent='Diagnostics ready';
+                    }});"""
+                if path == "/console-flood":
+                    auth += "for(let n=0;n<250;n++) console.log('Flood record ' + n);"
                 body = (
                     f"""<!doctype html><html><head><title>Synthetic ERP</title><script>{auth}</script></head>
                   <body><main><h1>Products</h1><section id="summary" style="width:320px;height:120px;background:#acf">Summary</section>
@@ -235,6 +262,9 @@ def test_redirects_timeout_api_denials_and_origin_policy(live, website):
     invoke("navigate", "/manual", "--wait-for", "#missing", code=1)
     invoke("navigate", "/denied", "--wait-for", "#missing", code=1)
     assert invoke("inspect", code=1)["data"]["readiness"] == "access_denied"
+    assert invoke("status")["data"]["readiness"] == "access_denied"
+    assert any(row["status"] == 403 for row in invoke("network", "--failed")["data"]["requests"])
+    invoke("console")
     invoke("close")
     assert not any("logout" in value for value in server.requests)
 
@@ -290,6 +320,10 @@ def test_visible_browser(live, website):
     invoke, _ = live
     url, _, _ = website
     assert not invoke("open", url + "/auth/login", headed=True)["data"]["headless"]
+    status = invoke("status")["data"]
+    assert status["session_health"] == "connected" and status["worker_responding"]
+    assert status["window_visibility"] == "not_verified"
+    assert status["readiness"] == "login_required"
     assert invoke("screenshot")["data"]["captured"]
     invoke("close")
 
@@ -312,7 +346,82 @@ def test_streaming_readiness_and_bounded_inspection(live, website):
     assert inspected["truncated"] and len(inspected["data"]["nodes"]) <= 2
     assert token not in json.dumps(inspected)
     assert invoke("screenshot", "--selector", "#events-ready")["data"]["captured"]
+    network = invoke("network")["data"]
+    stream = next(row for row in network["requests"] if row["resource_type"] == "eventsource")
+    assert stream["status"] == 200 and stream["state"] == "response"
+    assert stream["timings_ms"]["total"] is None
+    assert token not in json.dumps(network) and "?token=" not in json.dumps(network)
     invoke("close")
+
+
+def test_diagnostics_across_invocations_redaction_and_failed_requests(live, website):
+    invoke, _ = live
+    url, _, token = website
+    invoke("open", url + "/diagnostics", "--wait-for", "#diagnostics-ready")
+    status = invoke("status")["data"]
+    assert status["session_health"] == "connected" and status["browser_connected"] and status["page_open"]
+    assert status["window_visibility"] == "headless" and status["headless"]
+    assert status["authentication"] == "no_client_token" and status["organization_id"] is None
+    assert "nodes" not in status and status["idle_timeout_seconds"] == 1800
+    report = invoke("console")["data"]
+    messages = report["messages"]
+    assert report["capture"]["observation_errors"] == 0
+    assert {"log", "info", "warning", "error"} <= {row["level"] for row in messages}
+    assert any(
+        row["kind"] == "page_error" and "Uncaught diagnostic error" in row["message"] for row in messages
+    )
+    assert all(row["level"] == "error" for row in invoke("console", "--level", "error")["data"]["messages"])
+    encoded = json.dumps(report)
+    assert token not in encoded and "never-show" not in encoded and "never-expand-object" not in encoded
+    network = invoke("network")["data"]
+    assert network["capture"]["observation_errors"] == 0
+    missing = next(row for row in network["requests"] if "/api/not-found" in row["url"])
+    assert missing["status"] == 404 and missing["state"] == "finished"
+    assert missing["timings_ms"]["total"] is not None
+    failed = next(row for row in network["requests"] if "/api/broken" in row["url"])
+    assert failed["state"] == "failed" and failed["failure"].startswith("net::ERR_")
+    assert "never-show" not in json.dumps(network) and "?secret=" not in json.dumps(network)
+    assert not invoke("network", "--since", str(network["capture"]["latest_sequence"]))["data"]["requests"]
+    assert all(
+        row["state"] == "failed" or (row["status"] or 0) >= 400
+        for row in invoke("network", "--failed")["data"]["requests"]
+    )
+    truncated = invoke("console", "--max-results", "1", "--max-output-chars", "2048")
+    assert truncated["truncated"] and len(truncated["data"]["messages"]) <= 1
+    cursor = messages[-1]["sequence"]
+    assert not invoke("console", "--since", str(cursor))["data"]["messages"]
+    invoke("navigate", "/manual")
+    authenticated = invoke("status")["data"]
+    assert (
+        authenticated["authentication"] == "client_token_present" and authenticated["organization_id"] == "7"
+    )
+    assert any(row["message"] == "Diagnostic log" for row in invoke("console")["data"]["messages"])
+    reference = invoke("inspect")["data"]["nodes"][0]["node"]
+    invoke("console")
+    invoke("network")
+    invoke("status")
+    assert invoke("screenshot", "--node", reference)["data"]["captured"]
+    invoke("close")
+    invoke("status", code=2)
+
+
+def test_diagnostics_retention_and_session_isolation(live, website):
+    invoke, _ = live
+    url, _, _ = website
+    invoke("open", url + "/console-flood")
+    data = invoke("console", "--level", "log", "--max-results", "1000", "--max-output-chars", "1000000")[
+        "data"
+    ]
+    assert data["capture"]["retained"] == 200 and data["capture"]["evicted"] >= 50
+    assert data["capture"]["history_gap"]
+    assert data["messages"][-1]["message"] == "Flood record 249"
+    invoke("open", url + "/auth/login", session="second")
+    assert not invoke("console", "--level", "log", session="second")["data"]["messages"]
+    assert not invoke("network", session="second", code=0)["data"]["capture"]["history_gap"]
+    assert invoke("status", session="second")["data"]["readiness"] == "login_required"
+    invoke("close")
+    invoke("open", url + "/auth/login")
+    assert not invoke("console", "--level", "log")["data"]["messages"]
 
 
 def test_api_redirect_blocked_before_destination_and_same_origin_redirect_allowed(live, website):
@@ -331,6 +440,11 @@ def test_api_redirect_blocked_before_destination_and_same_origin_redirect_allowe
     result = invoke("navigate", "/same-redirect", "--wait-for", "main")
     assert result["data"]["url"] == url + "/core/products"
     assert result["data"]["readiness"] == "ready"
+    network = invoke("network")["data"]
+    assert any(
+        row["url"].endswith("/api/redirect") and row["state"] == "failed" for row in network["requests"]
+    )
+    assert any(row["url"].endswith("/same-redirect") and row["status"] == 302 for row in network["requests"])
 
 
 def test_confirmed_stale_session_can_reopen_without_pid_kill(live, website):

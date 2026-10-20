@@ -27,6 +27,15 @@ EXAMPLES = {
     ],
     "browser navigate": ["devkit browser navigate /core/products --session erp --wait-for main --json"],
     "browser inspect": ["devkit browser inspect --session erp --json"],
+    "browser status": ["devkit browser status --session erp --json"],
+    "browser console": [
+        "devkit browser console --session erp --json",
+        "devkit browser console --session erp --level error --since 12 --json",
+    ],
+    "browser network": [
+        "devkit browser network --session erp --json",
+        "devkit browser network --session erp --failed --since 12 --json",
+    ],
     "browser screenshot": [
         "devkit browser screenshot --session erp --full-page --output products.png --json",
         "devkit browser screenshot --session erp --selector '#reports-summary' --json",
@@ -131,6 +140,9 @@ OUTPUTS = {
     "browser open": "Isolated ERP browser session, redacted current URL, observed authentication/readiness, exact allowed origins and idle timeout",
     "browser navigate": "Current page and bounded readiness evidence; login/permission/subscription/organization gates are not success",
     "browser inspect": "Bounded visible main-frame semantic elements, labels, bounds and snapshot-scoped node references; no input/storage values or raw HTML",
+    "browser status": "Worker/browser health, current page, observed login/organization state and idle timeout; headed mode does not prove desktop visibility",
+    "browser console": "Bounded in-memory console text and uncaught page errors; redacted messages, source locations where available, sequences and retention gaps",
+    "browser network": "Bounded latest request states, HTTP statuses, transport failures and browser-observed timings; no headers/bodies/query strings or WebSocket frames",
     "browser screenshot": "Local Git-ignored PNG path, size and capture mode; pixels may contain sensitive application data",
     "browser close": "Session closed without application logout; optionally save origin-bound ERP token state under a new private local name",
     "plan archive": "Shared archive index, plan/task source and destination paths, verification and source-clearing status; no document contents",
@@ -265,7 +277,7 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
             else "\nFormats: readable text (default) or --json. Scope: project root and --app; only Devkit .ignore applies. Analysis includes measured coverage (stages, counts, gaps and exclusions); complete processing is not runtime proof."
         )
         epilog += (
-            "\nExit codes: 0 operation completed (read readiness/limitations), 1 navigation/readiness/authentication gate or timeout, 2 invalid input, unavailable session/addon/browser, unsafe storage or capture failure. Closing never calls ERP logout."
+            "\nExit codes: 0 operation completed (status/console/network can report application errors), 1 navigation/readiness/authentication gate or timeout, 2 invalid input, unavailable session/addon/browser, unsafe storage or capture failure. Closing never calls ERP logout."
             if key.startswith("browser")
             else "\nExit codes: 0 report generated (findings/unknowns may remain), 1 incomplete --strict performance analysis or comparison --fail-on-regression gate, 2 invalid/unsafe capture or configuration/I/O failure. Offline evidence only: no SQL, instrumentation, profiling or load generation."
             if key.startswith("performance")
@@ -300,6 +312,9 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
         ("open", "Open a visible isolated ERP browser; explicit --headless is optional."),
         ("navigate", "Navigate within the session's exact ERP frontend origin."),
         ("inspect", "Inspect visible page structure and snapshot-scoped element references."),
+        ("status", "Report session health and observed page/login state without a readiness gate."),
+        ("console", "Read bounded captured console messages and uncaught JavaScript errors."),
+        ("network", "Read bounded request states, HTTP errors, transport failures and timings."),
         ("screenshot", "Save a viewport, full-page or single-element PNG locally."),
         ("close", "Close the isolated browser without logging out of ERP."),
     ):
@@ -314,15 +329,37 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
             "--timeout",
             type=bounded_int(1, 60),
             default=15,
-            help="Timeout per navigation/readiness/capture phase in seconds (default: 15)",
+            help="Maximum wait for the local worker response in seconds (default: 15)"
+            if action in {"status", "console", "network"}
+            else "Timeout per navigation/readiness/capture phase in seconds (default: 15)",
         )
         if action in {"open", "navigate"}:
             command.add_argument(
                 "url", help="ERP URL; navigate also accepts a path relative to the session origin"
             )
-        if action != "close":
+        if action in {"open", "navigate", "inspect", "screenshot"}:
             command.add_argument(
                 "--wait-for", help="Unique visible CSS/Playwright readiness selector; no network-idle wait"
+            )
+        if action in {"console", "network"}:
+            command.add_argument(
+                "--since",
+                type=bounded_int(0, 2**53 - 1),
+                default=0,
+                help="Return retained records updated after this stream's sequence (default: 0); not a timestamp",
+            )
+        if action == "console":
+            command.add_argument(
+                "--level",
+                choices=("all", "error", "warning", "info", "log", "debug", "other"),
+                default="all",
+                help="Filter console level; uncaught page errors are error (default: all)",
+            )
+        if action == "network":
+            command.add_argument(
+                "--failed",
+                action="store_true",
+                help="Only transport failures or HTTP statuses >= 400",
             )
         if action == "open":
             command.add_argument(

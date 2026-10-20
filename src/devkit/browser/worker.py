@@ -55,6 +55,9 @@ def serve(config):
                     "navigate",
                     "inspect",
                     "screenshot",
+                    "status",
+                    "console",
+                    "network",
                     "close",
                 }:
                     raise ValueError

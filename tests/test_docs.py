@@ -48,7 +48,7 @@ def test_analysis_templates_describe_capabilities_without_tool_preference(name):
     assert "performance compare --before <capture> --after <capture>" in content
     assert "--fail-on-regression" in content
     assert "--timings" in content
-    for command in ("open", "navigate", "inspect", "screenshot", "close"):
+    for command in ("open", "navigate", "inspect", "screenshot", "close", "status", "console", "network"):
         assert f"browser {command}" in content
     assert "--token-env" in content and "--save-auth" in content
     assert "collector.mjs" in content
